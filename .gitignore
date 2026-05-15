@@ -1,0 +1,43 @@
+# ── Secrets & credentials ─────────────────────────────────────
+.env
+credentials/
+user_config.yaml
+!user_config.yaml.example
+
+# ── Runtime data ──────────────────────────────────────────────
+data/
+__pycache__/
+*.pyc
+*.pyo
+*.log
+*.log.zip
+
+# ── Virtual environment ────────────────────────────────────────
+.venv/
+venv/
+env/
+
+# ── Generated documents ────────────────────────────────────────
+*.pdf
+*.docx
+
+# ── Tools (binaries) ──────────────────────────────────────────
+tools/gws.exe
+tools/nssm.exe
+tools/nssm.zip
+tools/nssm-2.24/
+
+# ── Archives ───────────────────────────────────────────────────
+*.zip
+
+# ── Claude Code internal worktrees (never commit) ─────────────
+.claude/worktrees/
+
+# ── IDE ────────────────────────────────────────────────────────
+.vscode/
+.idea/
+*.code-workspace
+
+# ── OS ─────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db

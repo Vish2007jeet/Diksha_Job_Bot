@@ -1,0 +1,186 @@
+# ============================================================
+#  Job Bot — User Configuration
+#
+#  Copy this file to user_config.yaml and fill in every field.
+#  user_config.yaml is gitignored — never commit it.
+#  This is the ONLY file you need to edit to get the bot running.
+# ============================================================
+
+# ── API Keys ─────────────────────────────────────────────────
+api_keys:
+  anthropic_api_key: "sk-ant-REPLACE_ME"
+  telegram_bot_token: "123456789:REPLACE_ME"
+  telegram_chat_id: 123456789        # integer — get via @userinfobot on Telegram
+  linkedin_email: "your@email.com"
+  linkedin_password: "yourpassword"
+  linkedin_cookie: ""                # recommended — paste li_at cookie from browser DevTools
+  xing_email: ""
+  xing_password: ""
+  api_secret_key: "replace-with-random-string"
+
+
+# ── Google Integration (optional) ────────────────────────────
+google:
+  sheets_id: ""                      # Google Sheets spreadsheet ID (leave blank to disable)
+  drive_folder_id: ""                # Google Drive folder ID (leave blank to disable)
+  credentials_path: "credentials/google_service_account.json"
+
+# ── Personal Profile ─────────────────────────────────────────
+personal:
+  full_name: "Jane Smith"
+  name_short: "Jane Smith"           # used in filenames: CV_Jane_Smith.docx
+  email: "jane.smith@example.com"
+  phone: "+49 000 00000000"
+  linkedin_handle: "jane-smith"
+  location: "Munich, Germany"
+
+# ── CV / CL / Interview Profile Text ─────────────────────────
+# These blocks are injected into the AI system prompts.
+# Write them in the style of a candidate brief the AI can reference.
+# Be specific — real company names, tools, GPAs, dates.
+profile:
+  # Injected into the CV and scoring system prompts.
+  # Replace the example below with your actual details.
+  cv_profile: |
+    CANDIDATE FIXED DETAILS (do not change):
+    Name: Jane Smith (MSc)
+    Email: jane.smith@example.com | Phone: +49 000 00000000
+    LinkedIn: jane-smith | Location: Munich, Germany
+
+    EDUCATION (include exactly as shown):
+      - Master of Science, [Your Field] | [Start] – Present
+        [Your University] (GPA X.X) | [City], [Country]
+      - Bachelor of [Science/Engineering], [Your Field] | [Start] – [End]
+        [Your University] (GPA X.X) | [City], [Country]
+
+    WORK EXPERIENCE (always in this exact order):
+      1. [Company 1], [City] – [Role Title]
+         Tools: [tool1, tool2, tool3]
+      2. [Company 2], [City] – [Role Title]
+      3. [Company 3], [City] – [Role Title]
+      4. [Company 4], [City] – [Role Title]
+
+    EXTRACURRICULAR / PROJECTS (always include):
+      - [Team or Project Name] – [Your Role]
+      - [Team or Project Name] – [Your Role]
+
+    KEY TOOLS: [list your main tools, comma-separated]
+    LANGUAGES: [Language] [Level] | [Language] [Level]
+    LOCATION PREFERENCE: [City1], [City2], Remote
+
+  # Injected into the Cover Letter system prompt.
+  cl_profile: |
+    CANDIDATE:
+    Jane Smith — MSc [Your Field], [Your University]
+    Experience: [Company 1] | [Company 2] | [Company 3] | [Company 4]
+    Projects: [Project/Team 1] | [Project/Team 2]
+    Tools: [your key tools]
+    Location: [City], [Country] | Open to relocate anywhere in [Region]
+
+  # Injected into the Interview Prep system prompt.
+  interview_profile: |
+    CANDIDATE: Jane Smith (MSc)
+    Location: [City], [Country] | Email: jane.smith@example.com
+
+    EDUCATION:
+    - MSc [Field], [University], [Start] – Present (GPA X.X)
+    - BSc/BEng [Field], [University], [Start] – [End] (GPA X.X)
+
+    WORK EXPERIENCE (in order):
+    1. [Company 1], [City] — [Role Title]
+       Tools: [tool list]
+    2. [Company 2], [City] — [Role Title]
+    3. [Company 3], [City] — [Role Title]
+    4. [Company 4], [City] — [Role Title]
+
+    EXTRACURRICULAR:
+    - [Team/Project] — [Role]
+    - [Team/Project] — [Role]
+
+    KEY TOOLS: [comma-separated]
+    LANGUAGES: [Language] [Level] | [Language] [Level]
+    VISA: [Your work authorisation status]
+    OPENNESS: [relocation / start date flexibility]
+
+  # Used in the CV Bullet-Point STAR Defence section of the interview prep.
+  # Paste all bullet text from your BASE CV here (before job customisation).
+  cv_bullets: |
+    COMPANY 1 — Role Title (Start–End):
+    B1: "Bullet 1 text with metric (e.g. reduced X by 22%)"
+    B2: "Bullet 2 text with metric"
+    B3: "Bullet 3 text with metric"
+    B4: "Bullet 4 text with metric"
+
+    COMPANY 2 — Role Title (Start–End):
+    B5: "Bullet 5 text with metric"
+    B6: "Bullet 6 text with metric"
+    B7: "Bullet 7 text with metric"
+    B8: "Bullet 8 text with metric"
+
+    COMPANY 3 — Role Title (Start–End):
+    B9:  "Bullet 9 text with metric"
+    B10: "Bullet 10 text with metric"
+    B11: "Bullet 11 text with metric"
+    B12: "Bullet 12 text with metric"
+
+    COMPANY 4 — Role Title (Start–End):
+    B13: "Bullet 13 text with metric"
+    B14: "Bullet 14 text with metric"
+    B15: "Bullet 15 text with metric"
+    B16: "Bullet 16 text with metric"
+
+    EXTRACURRICULAR / PROJECTS:
+    B17 (Project/Team 1 — Role): "Description with outcome"
+    B18 (Project/Team 2 — Role): "Description with outcome"
+
+  # Section headings for the CV STAR Defence section of the interview prep HTML.
+  # Provide one label per role/group of bullets above (max 5).
+  cv_star_section_labels:
+    - "7.1 Company 1 — Role Description"
+    - "7.2 Company 2 — Role Description"
+    - "7.3 Company 3 — Role Description"
+    - "7.4 Company 4 — Role Description"
+    - "7.5 Extracurricular / Projects"
+
+# ── Search Configuration ─────────────────────────────────────
+# These are seed values written to data/keywords.json on first run.
+# After first run, manage live via Telegram /tier1, /tier2, /tier3, /locations.
+search:
+  tier1_keywords:
+    - "Python Developer"
+    - "Backend Engineer"
+    - "Data Engineer"
+    - "Werkstudent"
+    - "Working Student"
+    - "Internship"
+  tier2_keywords:
+    - "FastAPI"
+    - "Django"
+    - "PostgreSQL"
+    - "Docker"
+    - "REST API"
+  tier3_keywords:
+    - "SQL"
+    - "CI/CD"
+    - "Git"
+    - "Linux"
+    - "Cloud"
+  locations:
+    - "Munich"
+    - "Berlin"
+    - "Remote"
+    - "Frankfurt"
+    - "Hamburg"
+  language: "en"   # en or de
+
+# ── Bot Settings ─────────────────────────────────────────────
+settings:
+  scan_interval_hours: 4
+  min_relevance_score: 6.0
+  max_jobs_per_scan: 20
+  monthly_budget_eur: 50.0
+  eur_to_usd_rate: 1.10
+  api_host: "0.0.0.0"
+  api_port: 8000
+  cv_highlight_color: "YELLOW"   # YELLOW, CYAN, GREEN, PINK, RED, BLUE, TURQUOISE
+  claude_model: "claude-sonnet-4-6"

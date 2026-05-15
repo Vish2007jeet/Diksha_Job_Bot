@@ -1,0 +1,28 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(grep -E \"^d|\\\\.py$|\\\\.json$|\\\\.db$\")",
+      "Bash(python -c ' *)",
+      "Bash(git add *)",
+      "Bash(dir data *)",
+      "Bash(python healthcheck.py)",
+      "Bash(set PYTHONIOENCODING=utf-8)",
+      "Bash(python -X utf8 healthcheck.py --quick)",
+      "Bash(python -X utf8 -c ' *)",
+      "Bash(python -X utf8 smoke_test.py)",
+      "Bash(python -X utf8 -c \"import ai.analyzer as a; print\\([m for m in dir\\(a.JobAnalyzer\\) if not m.startswith\\('_'\\)]\\)\")",
+      "Bash(python -X utf8 -c \"import documents.pipeline as p; print\\([m for m in dir\\(p.DocumentPipeline\\) if not m.startswith\\('_'\\)]\\)\")",
+      "Bash(python -X utf8 -c \"import inspect; from documents.pipeline import ApplicationResult; print\\(inspect.signature\\(ApplicationResult\\)\\); print\\([f for f in ApplicationResult.__dataclass_fields__] if hasattr\\(ApplicationResult,'__dataclass_fields__'\\) else dir\\(ApplicationResult\\)\\)\")",
+      "Bash(python -X utf8 -c \"import telegram; print\\(telegram.__version__\\)\")",
+      "Bash(python -X utf8 -c \"from telegram.ext import Application; print\\('telegram.ext OK'\\)\")",
+      "Bash(python -X utf8 -c \"import telegram.ext\")",
+      "Bash(pip show *)",
+      "Bash(python -X utf8 -c \"from bot.telegram_bot import send_message; print\\('send_message imported'\\)\")",
+      "Bash(pip install *)",
+      "Bash(Start-Process \"D:\\\\Diksha_Job_Bot\\\\data\\\\applications\\\\0. MTU_Aero_Engines_AG_Werkstudent_Programm_Management\\\\CV_Diksha_Desai_MTU_Aero_Engines_AG_Werkstudent_Programm_Management.pdf\")",
+      "PowerShell(Start-Process \"D:\\\\Diksha_Job_Bot\\\\data\\\\applications\\\\0. MTU_Aero_Engines_AG_Werkstudent_Programm_Management\\\\CV_Diksha_Desai_MTU_Aero_Engines_AG_Werkstudent_Programm_Management.pdf\")",
+      "PowerShell(Start-Process \"D:\\\\Diksha_Job_Bot\\\\data\\\\applications\\\\0. MTU_Aero_Engines_AG_Werkstudent_Programm_Management\\\\CL_Diksha_Desai_MTU_Aero_Engines_AG_Werkstudent_Programm_Management.pdf\")",
+      "Bash(git init *)"
+    ]
+  }
+}

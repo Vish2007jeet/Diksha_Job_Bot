@@ -52,8 +52,10 @@ KILL AI PATTERNS (in descriptions):
 
 STRENGTHEN DESCRIPTIONS (the part after "Label: "):
 - Use a strong specific past-tense verb as the first word of the description.
-- Every bullet must contain at least one specific named outcome: a number, a tool
-  name, a percentage, or a project milestone.
+- 2–3 bullets per role should contain a specific quantified metric (number, %, time saving).
+- 1 bullet per role may use a strong qualitative outcome instead — it must be concrete and
+  specific ("giving the ops team a single source of truth for the first time"), never generic
+  ("improved efficiency", "enhanced performance"). Do NOT invent a number where none exists.
 
 HARD CONSTRAINTS — DO NOT CHANGE:
 - The label and the ": " separator.

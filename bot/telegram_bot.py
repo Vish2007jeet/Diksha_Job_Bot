@@ -29,6 +29,10 @@ class TelegramBot:
         self.app = (
             Application.builder()
             .token(config.TELEGRAM_BOT_TOKEN)
+            .connect_timeout(10)
+            .read_timeout(30)
+            .write_timeout(60)   # file uploads on slow connections need headroom
+            .pool_timeout(10)
             .build()
         )
         # Register all handlers

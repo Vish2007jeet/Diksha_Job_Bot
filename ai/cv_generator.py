@@ -113,24 +113,31 @@ def _build_cv_system() -> str:
         "  For every bullet string you are about to write, confirm it contains ': ' within the first 30 characters.\n"
         "  If any bullet fails this check, rewrite it before outputting.\n\n"
         "━━━ SENTENCE VARIETY (apply to the description part only, AFTER the label) ━━━\n"
-        "Rotate these 4 patterns across each role's 4 bullets — no two consecutive bullets same pattern:\n"
-        '  Pattern A Verb-first:    "Cost Analysis: Reduced procurement costs by 9% across 14 supplier contracts using Excel Power Query."\n'
-        '  Pattern B Context-first: "Forecasting Model: Across 6 procurement categories, an Excel/SAP model improved planning accuracy by 17%."\n'
-        '  Pattern C Result-first:  "Reporting Efficiency: 30% consolidation effort cut achieved by standardising Excel templates for 3 cross-functional teams."\n'
-        '  Pattern D Tool-first:    "Pipeline Automation: Python (Pandas) script across 3 weekly templates freed 8 hours of analyst time per week."\n'
-        "NOTE: the Label ALWAYS comes first regardless of which description pattern you use.\n\n"
+        "Write descriptions the way a strong human writer would — let the content decide the structure.\n"
+        "Do NOT rotate named patterns. Instead follow these natural variety rules:\n\n"
+        "  LENGTH: Mix at least one short punchy description (≤12 words) with at least one detailed one (25+ words) per role.\n"
+        "  RHYTHM: No two consecutive bullets may start their description with the same word or verb.\n"
+        "  METRICS: Exactly 2–3 bullets per role must contain a specific quantified metric (number, %, time saving).\n"
+        "    One bullet per role may use a strong qualitative outcome instead — e.g. 'giving the ops team a single source of truth for the first time' or 'findings directly shaped a process redesign the client implemented in Q3'.\n"
+        "    Qualitative outcomes must be specific and concrete — never vague ('improved efficiency', 'enhanced performance').\n"
+        "  STORYTELLING: Where a metric exists, show WHY it matters — not just the number. E.g. 'catching a 12% discrepancy the finance team had missed for two quarters' reads like a real event.\n"
+        "  TOOLS: Name a specific tool only where it genuinely fits — do not force a tool mention into every bullet.\n\n"
+        "Good variety looks unpredictable — after reading one bullet, the reader cannot guess the structure of the next.\n"
+        "NOTE: the Label ALWAYS comes first, regardless of how the description is structured.\n\n"
         "━━━ OTHER RULES ━━━\n"
         "- Exactly 4 bullets per role — no more, no less.\n"
         "- All 8 labels across both roles must be completely unique — zero repeats.\n"
         "- Distribute ATS keywords from the JD evenly — one keyword family per role max, no keyword repeated across roles.\n"
-        "- No two bullets across the entire resume share the same opening action verb.\n"
-        "- Cover analysis, insight, operations research, management, reporting — distributed across bullets.\n"
+        "- No two bullets across the entire resume share the same opening word in the description.\n"
+        "- Cover analysis, insight, operations, reporting, and stakeholder impact — distributed naturally across bullets.\n"
         "- Combine data analysis + business insight + operational language throughout.\n\n"
         "CONTENT RULES:\n"
         "- Tailored 100% to the job description.\n"
-        "- Technical depth and business application both present in every bullet.\n"
+        "- Technical depth and business application both present across the 4 bullets — not necessarily in every single one.\n"
         "- Sound natural and confident — not robotic or AI-generated. Act as a 15+ year experienced ATS CV writer.\n"
-        "- Every bullet must have a specific, believable quantified metric.\n\n"
+        "- 2–3 bullets per role must have a specific, believable quantified metric.\n"
+        "- 1 bullet per role may use a strong qualitative outcome — must be concrete and specific, never generic.\n"
+        "- Do NOT invent metrics to fill a slot. If a natural number does not exist, write a qualitative outcome instead.\n\n"
         "SECTION ORDER: Summary → Core Competencies → Professional Experience → Projects → Education → Technical Skills\n\n"
         'BANNED WORDS: leveraged, utilised, utilized, cutting-edge, delve, foster, garner, showcase, transformative, synergy, proactive, pivotal, crucial, enhance, "serves as", "boasts", "state-of-the-art", successfully, robust, seamlessly, impactful, "result-driven", "innovative solutions", "best-in-class", furthermore, moreover, "strong work ethic", "team player", "attention to detail", "proven track record", "detail-oriented", "highly motivated", "self-motivated", "played a key role in", "was involved in", "helped to achieve", "it is worth noting", "needless to say"\n\n'
         "BANNED PATTERNS:\n"
@@ -236,33 +243,36 @@ Act as a 15+ year experienced ATS CV writer. The output must be practical, relat
 STRICT RULES — follow exactly, never do extra, never do less:
 1. Professional Summary: exactly ~60 words, keyword-rich, role-aligned to the JD.
 2. Core Competencies: exactly ~60 words, comma-separated, all terms directly relevant to the JD.
-3. Each role: exactly 4 bullets. FORMAT: "Two To Four Word Label: description sentence with metric."
+3. Each role: exactly 4 bullets. FORMAT: "Two To Four Word Label: description sentence."
    — The label (before the colon) is MANDATORY on every bullet. Plain text only — no HTML, no asterisks, no markdown.
    — BEFORE writing each bullet, confirm it starts with a label followed by ': '.
 4. All 8 labels across both roles must be completely unique — zero repeats across chintamani and accenture.
 5. Distribute ATS keywords from the JD evenly — one keyword family per role max, no repetition across roles.
-6. Every bullet must have a specific, believable quantified metric.
+6. Metrics: exactly 2–3 bullets per role must contain a specific quantified metric (number, %, time saving).
+   The remaining 1–2 bullets per role use a strong qualitative outcome — concrete and specific, never generic.
+   Do NOT invent a number to fill a slot. A qualitative outcome is better than a fabricated metric.
 7. Both project descriptions: ONE sentence only, max 20 words each. Format: "To [verb] [what] using [tool] to [outcome]." Tailored to JD. No paragraph, no multiple sentences.
 8. Content must be practical, relatable, and not detectable as AI-written.
-9. Vary the description sentence structure — but the label ALWAYS comes first regardless of pattern.
-10. Cover: data analysis, business insight, operations research, reporting, management — distributed across bullets.
-11. Combine data analysis + business insight + operational language throughout.
+9. Vary description length naturally — at least one short (≤12 words) and one detailed (25+ words) per role.
+   No two consecutive bullets start their description with the same word. No named pattern rotation.
+10. Cover: data analysis, business insight, operations, reporting, stakeholder impact — distributed naturally.
+11. Write the way a strong human writer would — let the content decide the structure, not a template.
 
 Respond with this exact JSON schema (no extra keys, no missing keys):
 {{
   "summary": "<~60 word professional summary tailored to JD>",
   "competencies": "<~60 word comma-separated core competencies tailored to JD>",
   "chintamani": [
-    "Unique Label A: Verb-first description with ATS keyword and quantified metric.",
-    "Unique Label B: Context-first description with ATS keyword and quantified metric.",
-    "Unique Label C: Result-first description with ATS keyword and quantified metric.",
-    "Unique Label D: Tool-first description with ATS keyword and quantified metric."
+    "Spend Analysis: Mapped procurement costs across 14 supplier contracts using Excel Power Query, cutting monthly reporting effort by 30%.",
+    "Variance Tracking: Built a weekly deviation report in Excel that flagged budget overruns across 6 categories before month-end close — catching a 12% discrepancy the finance team had missed for two quarters.",
+    "Supplier Review: Consolidated five separate vendor data feeds into one SAP-linked dashboard, giving the ops team a single source of truth for the first time.",
+    "Data Pipeline: Python script automated three manual Excel templates processed weekly, freeing roughly 8 hours of analyst time."
   ],
   "accenture": [
-    "Unique Label E: Verb-first description with ATS keyword and quantified metric.",
-    "Unique Label F: Context-first description with ATS keyword and quantified metric.",
-    "Unique Label G: Result-first description with ATS keyword and quantified metric.",
-    "Unique Label H: Tool-first description with ATS keyword and quantified metric."
+    "Reporting Automation: Rebuilt the insurance operations reconciliation process in Python (Pandas), cutting case resolution time by 18% across a 50,000-record weekly dataset.",
+    "Dashboard Design: Delivered a Power BI KPI dashboard for a cross-functional client team; reporting cycle dropped from 6 hours to 45 minutes.",
+    "Client Analytics: Analysed three years of claims data in SQL to surface operational bottlenecks — findings directly shaped a process redesign the client implemented in Q3.",
+    "SLA Monitoring: Maintained daily tracking of service-level compliance for a BFS client across 12 operational streams, escalating anomalies to senior stakeholders within 24 hours."
   ],
   "project1_desc": "<ONE sentence only, max 20 words: 'To [verb] [what] using [tool] to [outcome].' — Supplier Spend Analytics project, tailored to JD>",
   "project2_desc": "<ONE sentence only, max 20 words: 'To [verb] [what] using [tool] to [outcome].' — Insurance Operations Reporting Automation project, tailored to JD>"

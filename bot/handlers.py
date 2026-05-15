@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import io
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -1477,6 +1478,23 @@ class BotHandlers:
         task.add_done_callback(self._active_tasks.discard)
         task.add_done_callback(lambda t: t.exception() and logger.error(f"Doc gen task failed: {t.exception()}"))
 
+    @staticmethod
+    async def _tg_send(coro_factory, retries: int = 4, base_delay: float = 2.0):
+        """Retry a Telegram send on network/timeout errors (stale keep-alive fix)."""
+        delay = base_delay
+        for attempt in range(retries):
+            try:
+                return await coro_factory()
+            except Exception as exc:
+                if attempt == retries - 1:
+                    raise
+                logger.warning(
+                    "Telegram send failed (attempt %d/%d): %s — retrying in %.0fs",
+                    attempt + 1, retries, exc, delay,
+                )
+                await asyncio.sleep(delay)
+                delay = min(delay * 2, 30.0)
+
     async def _generate_and_send_docs(self, chat_id: int, job: JobListing, notes: str) -> None:
         from telegram import Bot
         bot: Bot = self._bot_ref
@@ -1505,11 +1523,11 @@ class BotHandlers:
                 ],
             )
 
-            await bot.send_message(
+            await self._tg_send(lambda: bot.send_message(
                 chat_id,
                 documents_ready(job, result.folder_name, drive_url),
                 parse_mode="HTML",
-            )
+            ))
 
             # Send CV + CL files
             for path_str, label in [
@@ -1520,55 +1538,56 @@ class BotHandlers:
             ]:
                 p = Path(path_str)
                 if p.exists():
-                    with open(p, "rb") as f:
-                        await bot.send_document(
-                            chat_id=chat_id,
-                            document=f,
-                            filename=p.name,
-                            caption=label,
-                        )
+                    with open(p, "rb") as fh:
+                        file_bytes = fh.read()
+                    await self._tg_send(lambda b=file_bytes, n=p.name, lbl=label: bot.send_document(
+                        chat_id=chat_id,
+                        document=io.BytesIO(b),
+                        filename=n,
+                        caption=lbl,
+                    ))
 
             # Send quality report with regenerate button
-            await bot.send_message(
+            await self._tg_send(lambda: bot.send_message(
                 chat_id,
                 quality_report(result),
                 parse_mode="HTML",
                 reply_markup=regen_keyboard(job.job_id),
-            )
+            ))
 
             # Send generation expense breakdown
             if result.generation_expense:
-                await bot.send_message(
+                await self._tg_send(lambda: bot.send_message(
                     chat_id,
                     result.generation_expense,
                     parse_mode="HTML",
-                )
+                ))
 
             # CL quality warnings
             if result.cl_warnings:
                 warn_lines = "\n".join(f"  • {w}" for w in result.cl_warnings)
-                await bot.send_message(
+                await self._tg_send(lambda: bot.send_message(
                     chat_id,
                     f"⚠️ <b>CL Quality Warnings</b> — please review before sending:\n{warn_lines}",
                     parse_mode="HTML",
-                )
+                ))
 
         except FileNotFoundError as exc:
-            await bot.send_message(
+            await self._tg_send(lambda: bot.send_message(
                 chat_id,
                 f"⚠️ <b>Template Missing</b>\n\n{exc}\n\n"
                 f"Place templates at:\n"
                 f"<code>templates/base/CV.docx</code>\n"
                 f"<code>templates/base/CL.docx</code>",
                 parse_mode="HTML",
-            )
+            ))
         except Exception as exc:
             logger.exception(f"Document generation failed: {exc}")
-            await bot.send_message(
+            await self._tg_send(lambda: bot.send_message(
                 chat_id,
                 f"❌ <b>Error generating documents:</b>\n<code>{exc}</code>",
                 parse_mode="HTML",
-            )
+            ))
 
     async def _regen_and_send_docs(self, chat_id: int, job_id: str) -> None:
         """
@@ -1594,13 +1613,13 @@ class BotHandlers:
         except (ValueError, AttributeError, IndexError):
             app_number = self.tracker.next_app_number()
 
-        await bot.send_message(
+        await self._tg_send(lambda: bot.send_message(
             chat_id,
             f"🔄 <b>Regenerating documents…</b>\n\n"
             f"<b>{job.title}</b> at <b>{job.company}</b>\n\n"
             f"⏳ Running full pipeline with quality retries — this takes 60–120 seconds.",
             parse_mode="HTML",
-        )
+        ))
 
         try:
             result = await self.pipeline.create_application_docs(job, notes, app_number=app_number)
@@ -1617,11 +1636,11 @@ class BotHandlers:
                 ],
             )
 
-            await bot.send_message(
+            await self._tg_send(lambda: bot.send_message(
                 chat_id,
                 documents_ready(job, result.folder_name, drive_url),
                 parse_mode="HTML",
-            )
+            ))
 
             for path_str, label in [
                 (result.cv_pdf_path,  "📄 CV (PDF)"),
@@ -1631,49 +1650,50 @@ class BotHandlers:
             ]:
                 p = Path(path_str)
                 if p.exists():
-                    with open(p, "rb") as f:
-                        await bot.send_document(
-                            chat_id=chat_id,
-                            document=f,
-                            filename=p.name,
-                            caption=label,
-                        )
+                    with open(p, "rb") as fh:
+                        file_bytes = fh.read()
+                    await self._tg_send(lambda b=file_bytes, n=p.name, lbl=label: bot.send_document(
+                        chat_id=chat_id,
+                        document=io.BytesIO(b),
+                        filename=n,
+                        caption=lbl,
+                    ))
 
-            await bot.send_message(
+            await self._tg_send(lambda: bot.send_message(
                 chat_id,
                 quality_report(result),
                 parse_mode="HTML",
                 reply_markup=regen_keyboard(job_id),
-            )
+            ))
 
             if result.generation_expense:
-                await bot.send_message(
+                await self._tg_send(lambda: bot.send_message(
                     chat_id,
                     result.generation_expense,
                     parse_mode="HTML",
-                )
+                ))
 
             if result.cl_warnings:
                 warn_lines = "\n".join(f"  • {w}" for w in result.cl_warnings)
-                await bot.send_message(
+                await self._tg_send(lambda: bot.send_message(
                     chat_id,
                     f"⚠️ <b>CL Quality Warnings</b> — please review before sending:\n{warn_lines}",
                     parse_mode="HTML",
-                )
+                ))
 
         except FileNotFoundError as exc:
-            await bot.send_message(
+            await self._tg_send(lambda: bot.send_message(
                 chat_id,
                 f"⚠️ <b>Template Missing</b>\n\n{exc}",
                 parse_mode="HTML",
-            )
+            ))
         except Exception as exc:
             logger.exception(f"Regen failed for {job_id}: {exc}")
-            await bot.send_message(
+            await self._tg_send(lambda: bot.send_message(
                 chat_id,
                 f"❌ <b>Regeneration failed:</b>\n<code>{exc}</code>",
                 parse_mode="HTML",
-            )
+            ))
 
     async def _generate_and_send_interview_prep(self, chat_id: int, job_id: str) -> None:
         """

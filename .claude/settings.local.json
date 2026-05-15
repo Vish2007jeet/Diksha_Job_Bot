@@ -28,7 +28,8 @@
       "Bash(git commit -m ' *)",
       "Bash(git remote *)",
       "Bash(git branch *)",
-      "Bash(git push *)"
+      "Bash(git push *)",
+      "Bash(cd /d \"D:\\\\Diksha_Job_Bot\")"
     ]
   }
 }

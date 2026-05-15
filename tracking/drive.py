@@ -133,6 +133,22 @@ class DriveUploader:
                             encoding="utf-8",
                         )
                         logger.warning("Drive: invalid_grant — token revoked. Re-run drive_setup.")
+                    elif "invalid_scope" in err:
+                        msg = (
+                            "⚠️ <b>Google Drive scope mismatch</b>\n\n"
+                            "The saved Drive token was authorised with different scopes and can no longer refresh.\n\n"
+                            "▶️ Fix: delete the old token and re-authorise:\n"
+                            "<code>cd D:\\Job_Bot\n"
+                            "del credentials\\drive_token.json\n"
+                            ".venv\\Scripts\\python.exe -m tracking.drive_setup</code>"
+                        )
+                        alert_file = config.BASE_DIR / "data" / "pending_alert.json"
+                        alert_file.parent.mkdir(exist_ok=True)
+                        alert_file.write_text(
+                            json.dumps({"message": msg, "sent": False}, ensure_ascii=False, indent=2),
+                            encoding="utf-8",
+                        )
+                        logger.warning("Drive: invalid_scope — token scope mismatch. Re-run drive_setup.")
                     raise  # propagates to upload_application → logs warning, returns None
 
         # Token missing or invalid — fall back to interactive flow if client secret exists

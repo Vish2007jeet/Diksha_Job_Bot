@@ -26,6 +26,7 @@ from bot.keyboards import (
     keywords_keyboard,
     locations_keyboard,
     main_menu_keyboard,
+    regen_keyboard,
     threshold_keyboard,
     tier_keyboard,
 )
@@ -1295,6 +1296,17 @@ class BotHandlers:
                 await query.edit_message_reply_markup(reply_markup=None)
                 await query.message.reply_html("Ignored. No changes made.")
 
+            elif action == "regen":
+                await query.edit_message_reply_markup(reply_markup=None)
+                task = asyncio.create_task(
+                    self._regen_and_send_docs(query.message.chat_id, job_id)
+                )
+                self._active_tasks.add(task)
+                task.add_done_callback(self._active_tasks.discard)
+                task.add_done_callback(
+                    lambda t: t.exception() and logger.error(f"Regen task failed: {t.exception()}")
+                )
+
     async def handle_notes_message(
         self, update: Update, ctx: ContextTypes.DEFAULT_TYPE
     ) -> int:
@@ -1516,11 +1528,12 @@ class BotHandlers:
                             caption=label,
                         )
 
-            # Send quality report
+            # Send quality report with regenerate button
             await bot.send_message(
                 chat_id,
                 quality_report(result),
                 parse_mode="HTML",
+                reply_markup=regen_keyboard(job.job_id),
             )
 
             # Send generation expense breakdown
@@ -1554,6 +1567,111 @@ class BotHandlers:
             await bot.send_message(
                 chat_id,
                 f"❌ <b>Error generating documents:</b>\n<code>{exc}</code>",
+                parse_mode="HTML",
+            )
+
+    async def _regen_and_send_docs(self, chat_id: int, job_id: str) -> None:
+        """
+        Re-run the full document pipeline for an already-applied job.
+        Overwrites the existing folder, uploads to Drive, and syncs Sheets.
+        Does not create a new application record or increment the app counter.
+        """
+        from telegram import Bot
+        bot: Bot = self._bot_ref
+
+        job_dict = self.tracker.get_job(job_id)
+        if not job_dict:
+            await bot.send_message(chat_id, "❓ Job not found in database.", parse_mode="HTML")
+            return
+
+        job   = self._dict_to_job(job_dict)
+        notes = job_dict.get("application_notes", "") or ""
+
+        # Recover the original application number from the stored folder name
+        folder_name = job_dict.get("folder_name", "")
+        try:
+            app_number = int(folder_name.split(".")[0])
+        except (ValueError, AttributeError, IndexError):
+            app_number = self.tracker.next_app_number()
+
+        await bot.send_message(
+            chat_id,
+            f"🔄 <b>Regenerating documents…</b>\n\n"
+            f"<b>{job.title}</b> at <b>{job.company}</b>\n\n"
+            f"⏳ Running full pipeline with quality retries — this takes 60–120 seconds.",
+            parse_mode="HTML",
+        )
+
+        try:
+            result = await self.pipeline.create_application_docs(job, notes, app_number=app_number)
+
+            # Sync Excel + Google Sheets (no new DB record — just update file snapshot)
+            self.tracker.sync_to_excel()
+
+            # Upload new files to Drive (overwrites existing folder)
+            drive_url = self.drive.upload_application(
+                folder_name=result.folder_name,
+                file_paths=[
+                    result.cv_docx_path, result.cv_pdf_path,
+                    result.cl_docx_path, result.cl_pdf_path,
+                ],
+            )
+
+            await bot.send_message(
+                chat_id,
+                documents_ready(job, result.folder_name, drive_url),
+                parse_mode="HTML",
+            )
+
+            for path_str, label in [
+                (result.cv_pdf_path,  "📄 CV (PDF)"),
+                (result.cv_docx_path, "📝 CV (Word)"),
+                (result.cl_pdf_path,  "📄 Cover Letter (PDF)"),
+                (result.cl_docx_path, "📝 Cover Letter (Word)"),
+            ]:
+                p = Path(path_str)
+                if p.exists():
+                    with open(p, "rb") as f:
+                        await bot.send_document(
+                            chat_id=chat_id,
+                            document=f,
+                            filename=p.name,
+                            caption=label,
+                        )
+
+            await bot.send_message(
+                chat_id,
+                quality_report(result),
+                parse_mode="HTML",
+                reply_markup=regen_keyboard(job_id),
+            )
+
+            if result.generation_expense:
+                await bot.send_message(
+                    chat_id,
+                    result.generation_expense,
+                    parse_mode="HTML",
+                )
+
+            if result.cl_warnings:
+                warn_lines = "\n".join(f"  • {w}" for w in result.cl_warnings)
+                await bot.send_message(
+                    chat_id,
+                    f"⚠️ <b>CL Quality Warnings</b> — please review before sending:\n{warn_lines}",
+                    parse_mode="HTML",
+                )
+
+        except FileNotFoundError as exc:
+            await bot.send_message(
+                chat_id,
+                f"⚠️ <b>Template Missing</b>\n\n{exc}",
+                parse_mode="HTML",
+            )
+        except Exception as exc:
+            logger.exception(f"Regen failed for {job_id}: {exc}")
+            await bot.send_message(
+                chat_id,
+                f"❌ <b>Regeneration failed:</b>\n<code>{exc}</code>",
                 parse_mode="HTML",
             )
 

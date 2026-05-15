@@ -92,7 +92,20 @@ Many job descriptions are written in German. When comparing JD keywords to the d
             "Antriebsstrang" = "drivetrain" or "powertrain",
             "Thermomanagement" = "thermal management",
             "Leistungselektronik" = "power electronics",
-            "Erprobung" = "testing" or "validation"
+            "Erprobung" = "testing" or "validation",
+            "Informatik" = "Computer Science",
+            "Softwaretechnik" = "Software Engineering",
+            "Fahrzeugtechnik" = "Automotive Engineering",
+            "Steuergeräte" / "Steuergerät" = "Control Units" / "Control Unit",
+            "Regelungstechnik" = "Control Engineering",
+            "Elektrotechnik" = "Electrical Engineering",
+            "Mathematik" = "Mathematics",
+            "Naturwissenschaften" = "Natural Sciences",
+            "Kenntnisse" = "Knowledge" / "proficiency",
+            "Erfahrung" = "Experience",
+            "Studium" = "Studies" / "degree",
+            "Fachrichtung" = "Field of Study" / "discipline",
+            "Werkstudent" = "Working Student"
 - Only report a gap if NEITHER the German term NOR its English translation appears.
 
 ━━ OUTPUT ━━

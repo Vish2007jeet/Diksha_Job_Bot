@@ -27,6 +27,9 @@ _name_slug = config.USER_NAME_SHORT.replace(" ", "_")
 CV_FILENAME = f"CV_{_name_slug}"
 CL_FILENAME = f"CL_{_name_slug}"
 
+_SCORE_TARGET = 80   # minimum ATS score before retrying
+_MAX_RETRIES  = 2    # up to 2 retries = 3 total attempts per document
+
 _MODEL_SHORT = {
     "claude-haiku-4-5-20251001": "Haiku 4.5",
     "claude-haiku-4-5":          "Haiku 4.5",
@@ -85,6 +88,22 @@ def _build_expense_report(job, tracker) -> str:
     except Exception as exc:
         logger.warning("Expense report failed: %s", exc)
         return ""
+
+
+# ── Bullet label validator ─────────────────────────────────────
+
+def _check_bullet_labels(cv_content: dict) -> List[str]:
+    """
+    Return a list of malformed bullets — those missing 'Label: ' within the
+    first 30 characters. Both roles are checked; results include role+index for
+    easy identification in logs.
+    """
+    bad: List[str] = []
+    for role in ("chintamani", "accenture"):
+        for i, bullet in enumerate(cv_content.get(role, []), 1):
+            if ": " not in bullet[:30]:
+                bad.append(f"{role}[{i}]: {bullet[:70]}")
+    return bad
 
 
 # ── Cover Letter quality check ─────────────────────────────────
@@ -224,22 +243,14 @@ class DocumentPipeline:
         logger.info("Output folder: %s", folder_name)
         logger.info("Generating docs for: %s @ %s", job.title, job.company)
 
-        # Step 1: Generate content with Claude
-        cv_content = await self.generator.generate_cv_content(job)
-        cl_content = await self.generator.generate_cl_content(job, application_notes)
-
-        # Step 1b: Humanizer rewrite (Haiku) — runs concurrently for CV + CL
-        cv_content, cl_content = await asyncio.gather(
-            self._humanizer.humanize_cv(job.job_id, cv_content),
-            self._humanizer.humanize_cl(job.job_id, cl_content),
-        )
-
-        # Step 1c: Quality evaluation — ATS (Claude) + banned-word scan
         jd = job.description or ""
-        cv_eval, cl_eval = await asyncio.gather(
-            self._evaluator.evaluate_cv(job.job_id, jd, cv_content),
-            self._evaluator.evaluate_cl(job.job_id, jd, cl_content),
+
+        # Steps 1–4: Generate → Humanize → Evaluate with retry loops (CV + CL concurrently)
+        (cv_content, cv_eval), (cl_content, cl_eval) = await asyncio.gather(
+            self._cv_loop(job, jd),
+            self._cl_loop(job, jd, application_notes),
         )
+
         for content, ev in ((cv_content, cv_eval), (cl_content, cl_eval)):
             content["ats_score"]          = ev.ats_score
             content["ats_gaps"]           = ev.missing_keywords
@@ -296,6 +307,121 @@ class DocumentPipeline:
             generation_expense=expense,
             cl_warnings=cl_warnings,
         )
+
+    async def _cv_loop(self, job, jd: str):
+        """
+        Generate → Humanize → Evaluate loop for the CV.
+        Retries up to _MAX_RETRIES times when ATS score < _SCORE_TARGET or banned words
+        are found.  Bullet-label failures short-circuit to the next attempt before
+        humanisation.  Always returns the best (highest ATS) result seen.
+        """
+        best_content, best_eval = None, None
+        feedback = ""
+
+        for attempt in range(_MAX_RETRIES + 1):
+            try:
+                content = await self.generator.generate_cv_content(job, feedback=feedback)
+            except Exception as exc:
+                logger.warning(
+                    "CV generation attempt %d raised %s: %s — %s",
+                    attempt + 1, type(exc).__name__, exc,
+                    "retrying" if attempt < _MAX_RETRIES else "giving up",
+                )
+                if attempt < _MAX_RETRIES:
+                    feedback = feedback or ""
+                    continue
+                raise
+
+            # Bullet label check — short-circuit if too many are malformed
+            bad = _check_bullet_labels(content)
+            if bad:
+                for b in bad:
+                    logger.warning("CV bullet missing label (attempt %d): %s", attempt + 1, b)
+                if len(bad) > 1 and attempt < _MAX_RETRIES:
+                    label_msg = (
+                        f"BULLET FORMAT ERROR: {len(bad)} bullet(s) are missing the required "
+                        f"'Label: ' prefix within the first 30 characters.\n"
+                        f"Affected: {bad}\n"
+                        "Fix: every bullet MUST start with 'Two To Four Word Label: description'."
+                    )
+                    feedback = label_msg + ("\n\n" + feedback if feedback else "")
+                    logger.warning(
+                        "CV bullet label check failed (%d bad) — retry %d/%d",
+                        len(bad), attempt + 1, _MAX_RETRIES,
+                    )
+                    continue  # skip humanise/evaluate; go straight to next attempt
+
+            content = await self._humanizer.humanize_cv(job.job_id, content)
+            ev = await self._evaluator.evaluate_cv(job.job_id, jd, content)
+
+            if best_eval is None or ev.ats_score > best_eval.ats_score:
+                best_content, best_eval = content, ev
+
+            passes = ev.ats_score >= _SCORE_TARGET and not ev.banned_words_found
+            if passes or attempt == _MAX_RETRIES:
+                break
+
+            logger.warning(
+                "CV ATS=%d < %d (banned=%s) — retry %d/%d for %s @ %s",
+                ev.ats_score, _SCORE_TARGET, ev.banned_words_found or "none",
+                attempt + 1, _MAX_RETRIES, job.title, job.company,
+            )
+            feedback = ev.feedback_block()
+
+        logger.info(
+            "CV final: ATS=%d | missing=%d | banned=%s",
+            best_eval.ats_score, len(best_eval.missing_keywords),
+            best_eval.banned_words_found or "none",
+        )
+        return best_content, best_eval
+
+    async def _cl_loop(self, job, jd: str, application_notes: str):
+        """
+        Generate → Humanize → Evaluate loop for the Cover Letter.
+        Mirrors _cv_loop: retries with evaluator feedback until score >= _SCORE_TARGET
+        or retries are exhausted; always keeps the best result seen.
+        """
+        best_content, best_eval = None, None
+        feedback = ""
+
+        for attempt in range(_MAX_RETRIES + 1):
+            try:
+                content = await self.generator.generate_cl_content(
+                    job, application_notes=application_notes, feedback=feedback
+                )
+            except Exception as exc:
+                logger.warning(
+                    "CL generation attempt %d raised %s: %s — %s",
+                    attempt + 1, type(exc).__name__, exc,
+                    "retrying" if attempt < _MAX_RETRIES else "giving up",
+                )
+                if attempt < _MAX_RETRIES:
+                    feedback = feedback or ""
+                    continue
+                raise
+            content = await self._humanizer.humanize_cl(job.job_id, content)
+            ev = await self._evaluator.evaluate_cl(job.job_id, jd, content)
+
+            if best_eval is None or ev.ats_score > best_eval.ats_score:
+                best_content, best_eval = content, ev
+
+            passes = ev.ats_score >= _SCORE_TARGET and not ev.banned_words_found
+            if passes or attempt == _MAX_RETRIES:
+                break
+
+            logger.warning(
+                "CL ATS=%d < %d (banned=%s) — retry %d/%d for %s @ %s",
+                ev.ats_score, _SCORE_TARGET, ev.banned_words_found or "none",
+                attempt + 1, _MAX_RETRIES, job.title, job.company,
+            )
+            feedback = ev.feedback_block()
+
+        logger.info(
+            "CL final: ATS=%d | missing=%d | banned=%s",
+            best_eval.ats_score, len(best_eval.missing_keywords),
+            best_eval.banned_words_found or "none",
+        )
+        return best_content, best_eval
 
     def _check_templates(self) -> None:
         for path, name in [

@@ -18,30 +18,45 @@ from utils.logger import logger
 _MODEL = "claude-haiku-4-5-20251001"
 
 _CV_TEXT_FIELDS   = ["summary", "competencies", "schanzer_desc", "veloce_desc"]
-_CV_BULLET_FIELDS = ["infineon", "magna", "arai", "chintamani"]
+_CV_BULLET_FIELDS = ["chintamani", "accenture"]
 _CL_PARA_FIELDS   = ["para1", "para2", "para3", "para4", "para5"]
 
 _SYSTEM = """\
 You are a professional writing editor for engineering CVs and cover letters.
 Rewrite the provided sections to sound more natural and human.
 
-VARY SENTENCE LENGTH:
-- Mix short punchy sentences (≤12 words) with longer technical ones (20+ words).
-- No more than 2 consecutive sentences of similar length.
+━━ BULLET FORMAT — ABSOLUTE RULE, ZERO EXCEPTIONS ━━
+Every CV bullet follows the format:  "Bold Label: description sentence."
+The label is the text BEFORE the first ": " (colon + space).
 
-KILL AI PATTERNS:
-- Never open a sentence with: Furthermore, Moreover, Additionally, As a result,
+YOU MUST:
+- Keep the exact label text unchanged — do NOT remove it, rename it, or reorder it.
+- Keep the colon-space separator (": ") immediately after the label.
+- Only rewrite the description AFTER the colon. The label is frozen.
+
+CORRECT — label preserved:
+  "Pipeline Automation: Built Python (Pandas) scripts processing 50,000+ records weekly."
+WRONG — label stripped (FORBIDDEN):
+  "Built Python (Pandas) scripts processing 50,000+ records weekly."
+WRONG — label changed (FORBIDDEN):
+  "Automation Pipeline: Built Python (Pandas) scripts..."
+
+VARY SENTENCE LENGTH (description part only, after the label):
+- Mix short punchy clauses (≤10 words) with longer technical ones (20+ words).
+- No two consecutive bullets may start their description with the same verb.
+
+KILL AI PATTERNS (in descriptions):
+- Never open the description with: Furthermore, Moreover, Additionally, As a result,
   This ensures, This allows, By doing so, In order to.
-- No parallel openers: two consecutive bullets must not start with the same verb.
 - Delete hedge phrases entirely: "I believe", "I feel that", "it is worth noting".
 
-STRENGTHEN BULLETS:
-- Start every bullet with a strong specific past-tense verb (Developed, Reduced,
-  Built, Validated, Automated, Designed, Implemented...).
+STRENGTHEN DESCRIPTIONS (the part after "Label: "):
+- Use a strong specific past-tense verb as the first word of the description.
 - Every bullet must contain at least one specific named outcome: a number, a tool
   name, a percentage, or a project milestone.
 
 HARD CONSTRAINTS — DO NOT CHANGE:
+- The label and the ": " separator.
 - Numbers, percentages, and metrics.
 - Tool / software names and abbreviations.
 - Company names, job titles, dates.

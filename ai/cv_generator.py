@@ -154,6 +154,22 @@ def _build_cv_system() -> str:
         "  Abweichungsanalyse → Variance Analysis\n"
         "  Wirtschaftsinformatik → Business Informatics\n"
         "  Betriebswirtschaft → Business Administration\n"
+        "  Informatik → Computer Science\n"
+        "  Softwaretechnik → Software Engineering\n"
+        "  Fahrzeugtechnik → Automotive Engineering\n"
+        "  Steuergeräte → Control Units\n"
+        "  Steuergerät → Control Unit\n"
+        "  Regelungstechnik → Control Engineering\n"
+        "  Elektrotechnik → Electrical Engineering\n"
+        "  Maschinenbau → Mechanical Engineering\n"
+        "  Mathematik → Mathematics\n"
+        "  Naturwissenschaften → Natural Sciences\n"
+        "  Fahrzeugentwicklung → Vehicle Development\n"
+        "  Entwicklung → Development\n"
+        "  Kenntnisse → Knowledge\n"
+        "  Erfahrung → Experience\n"
+        "  Studium → Studies\n"
+        "  Fachrichtung → Field of Study\n"
         "If unsure of the English translation, paraphrase in plain English. Never output German.\n\n"
         "RESPONSE: Valid JSON only. No markdown. No code fences.\n"
     )
@@ -333,13 +349,20 @@ class CVGenerator:
             response.usage.input_tokens, response.usage.output_tokens, cost,
         )
 
-    async def generate_cv_content(self, job: JobListing) -> Dict:
+    async def generate_cv_content(self, job: JobListing, feedback: str = "") -> Dict:
         prompt = get_prompt("cv_prompt").format(
             title=job.title,
             company=job.company,
             location=job.location,
             description=job.description[:3000] if job.description else "Not provided.",
         )
+        if feedback:
+            prompt += (
+                f"\n\n{'='*50}\n"
+                "QUALITY REPORT FROM PREVIOUS ATTEMPT — FIX EVERY ISSUE BEFORE OUTPUTTING:\n"
+                f"{feedback}\n"
+                f"{'='*50}\n"
+            )
 
         logger.info(f"Generating CV content for {job.title} @ {job.company}")
         response = await asyncio.to_thread(
@@ -357,7 +380,7 @@ class CVGenerator:
         return data
 
     async def generate_cl_content(
-        self, job: JobListing, application_notes: str = ""
+        self, job: JobListing, application_notes: str = "", feedback: str = ""
     ) -> Dict:
         prompt = get_prompt("cl_prompt").format(
             title=job.title,
@@ -366,6 +389,13 @@ class CVGenerator:
             description=job.description[:2500] if job.description else "Not provided.",
             notes=application_notes or "None",
         )
+        if feedback:
+            prompt += (
+                f"\n\n{'='*50}\n"
+                "QUALITY REPORT FROM PREVIOUS ATTEMPT — FIX EVERY ISSUE BEFORE OUTPUTTING:\n"
+                f"{feedback}\n"
+                f"{'='*50}\n"
+            )
 
         logger.info(f"Generating CL content for {job.title} @ {job.company}")
         response = await asyncio.to_thread(
@@ -384,18 +414,23 @@ class CVGenerator:
 
     @staticmethod
     def _clean_json(text: str) -> str:
+        import json as _json
         text = text.strip()
+        # Strip markdown code fences
         if text.startswith("```"):
             parts = text.split("```")
             text = parts[1] if len(parts) > 1 else text
             if text.startswith("json"):
                 text = text[4:]
             text = text.strip()
-        # If the model prepended prose before the JSON object, skip to the first {
-        if not text.startswith("{") and not text.startswith("["):
-            for bracket in ("{", "["):
-                idx = text.find(bracket)
-                if idx != -1:
-                    text = text[idx:]
-                    break
-        return text.strip()
+        # Skip any prose before the first JSON object/array
+        for bracket in ("{", "["):
+            idx = text.find(bracket)
+            if idx != -1:
+                text = text[idx:]
+                break
+        text = text.strip()
+        # raw_decode extracts exactly the first valid JSON object, ignoring any
+        # trailing text or second object Claude may have appended on retries.
+        obj, _ = _json.JSONDecoder().raw_decode(text)   # raises JSONDecodeError if still invalid
+        return _json.dumps(obj, ensure_ascii=False)

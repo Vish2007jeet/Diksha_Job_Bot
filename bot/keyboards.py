@@ -121,6 +121,13 @@ def scrapers_keyboard(enabled_map: dict) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(rows)
 
 
+def regen_keyboard(job_id: str) -> InlineKeyboardMarkup:
+    """Button shown below the quality report — lets the user regenerate docs."""
+    return InlineKeyboardMarkup([[
+        InlineKeyboardButton("🔄 Regenerate Docs", callback_data=f"regen:{job_id}"),
+    ]])
+
+
 def gmail_confirm_keyboard(job_id: str, new_status: str) -> InlineKeyboardMarkup:
     """Confirmation keyboard for Gmail-detected status changes."""
     return InlineKeyboardMarkup([[

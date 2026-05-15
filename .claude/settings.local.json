@@ -22,7 +22,13 @@
       "Bash(Start-Process \"D:\\\\Diksha_Job_Bot\\\\data\\\\applications\\\\0. MTU_Aero_Engines_AG_Werkstudent_Programm_Management\\\\CV_Diksha_Desai_MTU_Aero_Engines_AG_Werkstudent_Programm_Management.pdf\")",
       "PowerShell(Start-Process \"D:\\\\Diksha_Job_Bot\\\\data\\\\applications\\\\0. MTU_Aero_Engines_AG_Werkstudent_Programm_Management\\\\CV_Diksha_Desai_MTU_Aero_Engines_AG_Werkstudent_Programm_Management.pdf\")",
       "PowerShell(Start-Process \"D:\\\\Diksha_Job_Bot\\\\data\\\\applications\\\\0. MTU_Aero_Engines_AG_Werkstudent_Programm_Management\\\\CL_Diksha_Desai_MTU_Aero_Engines_AG_Werkstudent_Programm_Management.pdf\")",
-      "Bash(git init *)"
+      "Bash(git init *)",
+      "Bash(git rm *)",
+      "Bash(git config *)",
+      "Bash(git commit -m ' *)",
+      "Bash(git remote *)",
+      "Bash(git branch *)",
+      "Bash(git push *)"
     ]
   }
 }

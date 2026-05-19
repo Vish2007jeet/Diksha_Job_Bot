@@ -23,6 +23,7 @@ import config
 from bot.keyboards import (
     cancel_keyboard,
     confirm_apply_keyboard,
+    humanize_keyboard,
     job_review_keyboard,
     keywords_keyboard,
     locations_keyboard,
@@ -574,6 +575,35 @@ class BotHandlers:
         else:
             await update.message.reply_html("ℹ️ No scan is currently running.")
 
+    # ── /humanize ──────────────────────────────────────────────
+
+    @staticmethod
+    def _humanize_text(enabled: bool) -> str:
+        status = "✅ <b>Enabled</b>" if enabled else "⚡ <b>Disabled</b>"
+        cost_note = (
+            "Haiku rewrites CV + CL after generation — costs ~$0.002/application."
+            if enabled
+            else "Skipped — CV + CL go straight to ATS evaluation after generation.\n"
+                 "Saves ~$0.002/application. Useful when testing or iterating quickly."
+        )
+        return (
+            f"🔄 <b>Humanizer Rewrite</b>\n\n"
+            f"Status: {status}\n\n"
+            f"<i>What it does (when enabled):</i>\n"
+            f"• Claude Haiku rewrites every CV bullet and CL paragraph\n"
+            f"• Makes text sound natural, undetectable as AI-written\n"
+            f"• Strips residual banned phrases the generator may have missed\n\n"
+            f"{cost_note}"
+        )
+
+    async def cmd_humanize(self, update: Update, _ctx: ContextTypes.DEFAULT_TYPE) -> None:
+        if update.effective_chat.id != config.TELEGRAM_CHAT_ID:
+            return
+        await update.message.reply_html(
+            self._humanize_text(config.HUMANIZE_ENABLED),
+            reply_markup=humanize_keyboard(config.HUMANIZE_ENABLED),
+        )
+
     # ── /keywords ──────────────────────────────────────────────
 
     async def cmd_keywords(self, update: Update, _ctx: ContextTypes.DEFAULT_TYPE) -> None:
@@ -1116,6 +1146,22 @@ class BotHandlers:
                     f"Tap a preset or use ➖ / ➕ to adjust.",
                     parse_mode="HTML",
                     reply_markup=threshold_keyboard(new_val),
+                )
+            except Exception:
+                pass
+            return
+
+        # ── humanize toggle ────────────────────────────────────────
+        if data.startswith("humanize:"):
+            from utils.bot_settings import bot_settings
+            action = data.split(":", 1)[1]
+            new_state = action == "on"
+            bot_settings.set("humanize_enabled", new_state)  # persists + syncs config
+            try:
+                await query.edit_message_text(
+                    self._humanize_text(new_state),
+                    parse_mode="HTML",
+                    reply_markup=humanize_keyboard(new_state),
                 )
             except Exception:
                 pass
@@ -1880,6 +1926,7 @@ def build_handlers(handlers: BotHandlers):
         (CommandHandler("scan",         handlers.cmd_scan),         0),
         (CommandHandler("stop",         handlers.cmd_stop),         0),
         (CommandHandler("threshold",    handlers.cmd_threshold),    0),
+        (CommandHandler("humanize",     handlers.cmd_humanize),     0),
         (CommandHandler("health",       handlers.cmd_health),       0),
         (CommandHandler("jobs",         handlers.cmd_jobs),         0),
         (CommandHandler("saved",        handlers.cmd_saved),        0),

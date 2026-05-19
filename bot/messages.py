@@ -180,6 +180,8 @@ def help_text() -> str:
         "/prompts — View active CV/CL generation prompts\n"
         "/setprompt &lt;key&gt; — Edit a CV/CL prompt from Telegram\n"
         "/resetprompts — Restore all prompts to defaults\n"
+        "/threshold — Get/set minimum relevance score for job cards\n"
+        "/humanize — Toggle the Haiku rewriter on/off (CV + CL)\n"
         "/status — Bot stats, API cost breakdown, budget remaining\n"
         "/health — Check all integrations live (API, Sheets, Drive, Gmail)\n"
         "/help — This message\n\n"

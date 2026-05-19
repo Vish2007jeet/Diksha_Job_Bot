@@ -174,6 +174,21 @@ OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 # ── CV Color Config ───────────────────────────────────────────
 CV_HIGHLIGHT_COLOR: str = _settings.get("cv_highlight_color") or os.getenv("CV_HIGHLIGHT_COLOR", "YELLOW")
 
+# ── Runtime toggles (persisted in data/bot_settings.json, managed via Telegram) ──
+# Loaded here so the rest of the codebase can do `import config; config.HUMANIZE_ENABLED`.
+# utils/bot_settings.py handles reads/writes and keeps this in sync when changed.
+def _load_bot_setting(key: str, default):
+    _f = BASE_DIR / "data" / "bot_settings.json"
+    if _f.exists():
+        try:
+            import json as _json
+            return _json.loads(_f.read_text(encoding="utf-8")).get(key, default)
+        except Exception:
+            pass
+    return default
+
+HUMANIZE_ENABLED: bool = bool(_load_bot_setting("humanize_enabled", True))
+
 # ── Google Sheets ─────────────────────────────────────────────
 _google = _cfg.get("google", {})
 GOOGLE_SHEETS_ID: str = _google.get("sheets_id") or os.getenv("GOOGLE_SHEETS_ID", "")

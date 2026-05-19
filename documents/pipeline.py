@@ -416,7 +416,10 @@ class DocumentPipeline:
                     logger.warning(f"CV word-count check failed ({len(over_limit)} violations) — retry {attempt + 1}/{_MAX_RETRIES}")
                     continue  # skip humanise/evaluate; go straight to next attempt
 
-            content = await self._humanizer.humanize_cv(job.job_id, content)
+            if config.HUMANIZE_ENABLED:
+                content = await self._humanizer.humanize_cv(job.job_id, content)
+            else:
+                logger.info("CV humanizer skipped (disabled via /humanize)")
             ev = await self._evaluator.evaluate_cv(job.job_id, jd, content)
 
             if best_eval is None or ev.ats_score > best_eval.ats_score:
@@ -465,7 +468,10 @@ class DocumentPipeline:
                         logger.warning("CL feedback cleared after parse error to avoid context overflow.")
                     continue
                 raise
-            content = await self._humanizer.humanize_cl(job.job_id, content)
+            if config.HUMANIZE_ENABLED:
+                content = await self._humanizer.humanize_cl(job.job_id, content)
+            else:
+                logger.info("CL humanizer skipped (disabled via /humanize)")
             ev = await self._evaluator.evaluate_cl(job.job_id, jd, content)
 
             if best_eval is None or ev.ats_score > best_eval.ats_score:

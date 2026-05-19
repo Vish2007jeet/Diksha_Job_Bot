@@ -121,6 +121,15 @@ def scrapers_keyboard(enabled_map: dict) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(rows)
 
 
+def humanize_keyboard(enabled: bool) -> InlineKeyboardMarkup:
+    """Single toggle button for /humanize."""
+    if enabled:
+        btn = InlineKeyboardButton("✅ ON — tap to disable", callback_data="humanize:off")
+    else:
+        btn = InlineKeyboardButton("⚡ OFF — tap to enable", callback_data="humanize:on")
+    return InlineKeyboardMarkup([[btn]])
+
+
 def regen_keyboard(job_id: str) -> InlineKeyboardMarkup:
     """Button shown below the quality report — lets the user regenerate docs."""
     return InlineKeyboardMarkup([[

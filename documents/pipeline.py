@@ -250,6 +250,75 @@ def _position_kw(title: str, max_words: int = 3) -> str:
     return _safe_name(kw, max_len=40) if kw else "Position"
 
 
+# ── JD Keyword Pre-Extraction ──────────────────────────────────
+
+_JD_KW_EXTRACT_PROMPT = """\
+Extract every ATS-critical keyword from the job description below.
+Return a JSON array of strings — flat list, no nesting.
+Include: tool names, software, abbreviations, methodologies, domain skills, \
+role titles, certifications, programming languages.
+Translate any German terms to their standard English equivalents.
+Order: most critical / most specific first.
+Maximum 25 items.
+
+JOB DESCRIPTION:
+{jd}
+
+Return valid JSON only. Example: ["Supply Chain Management", "SAP MM", "Python", "SQL"]
+"""
+
+_HAIKU_MODEL = "claude-haiku-4-5"
+
+
+async def _extract_jd_keywords(jd: str, tracker=None, job_id: str = "") -> list[str]:
+    """
+    Lightweight Haiku call that extracts an explicit ATS keyword list from the JD.
+    Returns a list of up to 25 strings (most critical first).
+    Fails open — returns [] on any error so generation still proceeds.
+    """
+    import anthropic as _anthropic
+    from utils.cost import calc_cost as _calc_cost
+
+    if not jd.strip():
+        return []
+
+    try:
+        client = _anthropic.Anthropic(api_key=config.ANTHROPIC_API_KEY)
+        response = await asyncio.to_thread(
+            client.messages.create,
+            model=_HAIKU_MODEL,
+            max_tokens=400,
+            messages=[{"role": "user", "content": _JD_KW_EXTRACT_PROMPT.format(jd=jd[:4000])}],
+        )
+        if tracker and job_id:
+            cost = _calc_cost(
+                _HAIKU_MODEL,
+                response.usage.input_tokens,
+                response.usage.output_tokens,
+            )
+            tracker.log_api_cost(
+                job_id, "jd_analysis", _HAIKU_MODEL,
+                response.usage.input_tokens, response.usage.output_tokens, cost,
+            )
+
+        raw = response.content[0].text.strip() if response.content else ""
+        # Strip markdown fences if present
+        if raw.startswith("```"):
+            parts = raw.split("```")
+            raw = parts[1] if len(parts) > 1 else raw
+            if raw.startswith("json"):
+                raw = raw[4:]
+            raw = raw.strip()
+        keywords: list = json.loads(raw)
+        if isinstance(keywords, list):
+            keywords = [str(k) for k in keywords if k][:25]
+            logger.info(f"[JD Keywords] Extracted {len(keywords)}: {', '.join(keywords[:8])}{'…' if len(keywords) > 8 else ''}")
+            return keywords
+    except Exception as exc:
+        logger.warning(f"JD keyword extraction failed (non-fatal): {exc}")
+    return []
+
+
 class DocumentPipeline:
     def __init__(self, tracker=None):
         self._tracker   = tracker
@@ -294,10 +363,13 @@ class DocumentPipeline:
 
         jd = job.description or ""
 
-        # Steps 1–4: Generate → Humanize → Evaluate with retry loops (CV + CL concurrently)
+        # Stage 1: Extract ATS keywords from JD (Haiku, ~$0.0005) — runs before generation
+        jd_keywords = await _extract_jd_keywords(jd, tracker=self._tracker, job_id=job.job_id)
+
+        # Steps 2–5: Generate → Humanize → Evaluate with retry loops (CV + CL concurrently)
         (cv_content, cv_eval), (cl_content, cl_eval) = await asyncio.gather(
-            self._cv_loop(job, jd),
-            self._cl_loop(job, jd, application_notes),
+            self._cv_loop(job, jd, jd_keywords=jd_keywords),
+            self._cl_loop(job, jd, application_notes, jd_keywords=jd_keywords),
         )
 
         for content, ev in ((cv_content, cv_eval), (cl_content, cl_eval)):
@@ -357,7 +429,7 @@ class DocumentPipeline:
             cl_warnings=cl_warnings,
         )
 
-    async def _cv_loop(self, job, jd: str):
+    async def _cv_loop(self, job, jd: str, jd_keywords: list | None = None):
         """
         Generate → Humanize → Evaluate loop for the CV.
         Retries up to _MAX_RETRIES times when ATS score < _SCORE_TARGET or banned words
@@ -369,7 +441,9 @@ class DocumentPipeline:
 
         for attempt in range(_MAX_RETRIES + 1):
             try:
-                content = await self.generator.generate_cv_content(job, feedback=feedback)
+                content = await self.generator.generate_cv_content(
+                    job, feedback=feedback, jd_keywords=jd_keywords
+                )
             except Exception as exc:
                 action = "retrying" if attempt < _MAX_RETRIES else "giving up"
                 logger.warning(
@@ -443,7 +517,7 @@ class DocumentPipeline:
         )
         return best_content, best_eval
 
-    async def _cl_loop(self, job, jd: str, application_notes: str):
+    async def _cl_loop(self, job, jd: str, application_notes: str, jd_keywords: list | None = None):
         """
         Generate → Humanize → Evaluate loop for the Cover Letter.
         Mirrors _cv_loop: retries with evaluator feedback until score >= _SCORE_TARGET
@@ -455,7 +529,8 @@ class DocumentPipeline:
         for attempt in range(_MAX_RETRIES + 1):
             try:
                 content = await self.generator.generate_cl_content(
-                    job, application_notes=application_notes, feedback=feedback
+                    job, application_notes=application_notes, feedback=feedback,
+                    jd_keywords=jd_keywords,
                 )
             except Exception as exc:
                 action = "retrying" if attempt < _MAX_RETRIES else "giving up"

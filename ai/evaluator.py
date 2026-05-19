@@ -175,8 +175,13 @@ class EvalResult:
             lines.append("")
 
         if self.missing_keywords:
-            lines.append("❌ MISSING JD KEYWORDS — embed each verbatim (exact casing):")
-            lines += [f"  - {k}" for k in self.missing_keywords[:12]]
+            lines.append(
+                "❌ MISSING JD KEYWORDS — embed each verbatim (exact casing) in the most natural section:\n"
+                "  • Tools / software / abbreviations → Core Competencies or bullet descriptions\n"
+                "  • Domain skills / methodologies   → summary or Core Competencies\n"
+                "  • Role requirements / soft skills  → bullet descriptions or summary\n"
+            )
+            lines += [f"  - {k}" for k in self.missing_keywords]
             lines.append("")
 
         lines.append("Fix ALL of the above and regenerate the complete JSON.")
@@ -259,7 +264,7 @@ class DocumentEvaluator:
 
     async def evaluate_cv(self, job_id: str, jd: str, cv_data: dict) -> EvalResult:
         cv_text = cv_dict_to_text(cv_data)
-        prompt  = _CV_ATS_PROMPT.format(jd=jd[:4500], cv_text=cv_text)
+        prompt  = _CV_ATS_PROMPT.format(jd=jd[:5000], cv_text=cv_text)
         data    = await self._ats_call(prompt, job_id, "cv_ats")
         banned  = check_banned_words(cv_text)
         result  = EvalResult(
@@ -274,7 +279,7 @@ class DocumentEvaluator:
 
     async def evaluate_cl(self, job_id: str, jd: str, cl_data: dict) -> EvalResult:
         cl_text = cl_dict_to_text(cl_data)
-        prompt  = _CL_ATS_PROMPT.format(jd=jd[:3500], cl_text=cl_text)
+        prompt  = _CL_ATS_PROMPT.format(jd=jd[:4000], cl_text=cl_text)
         data    = await self._ats_call(prompt, job_id, "cl_ats")
         banned  = check_banned_words(cl_text)
         result  = EvalResult(

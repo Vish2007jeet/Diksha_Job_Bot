@@ -132,7 +132,10 @@ def _build_cv_system() -> str:
         "━━━ OTHER RULES ━━━\n"
         "- Exactly 4 bullets per role — no more, no less.\n"
         "- All 8 labels across both roles must be completely unique — zero repeats.\n"
-        "- Distribute ATS keywords from the JD evenly — one keyword family per role max, no keyword repeated across roles.\n"
+        "- Distribute ATS keywords across ALL CV sections: summary, Core Competencies, both roles' bullets, and project descriptions.\n"
+        "  No section should be keyword-free if the JD supplies relevant terms.\n"
+        "  Core Competencies is the PRIMARY keyword coverage layer — pack it with every JD tool, software, and domain skill\n"
+        "  that does not fit naturally into a bullet. Keywords may appear in both competencies AND a bullet if they are central to the role.\n"
         "- No two bullets across the entire resume share the same opening word in the description.\n"
         "- Cover analysis, insight, operations, reporting, and stakeholder impact — distributed naturally across bullets.\n"
         "- Combine data analysis + business insight + operational language throughout.\n\n"
@@ -247,13 +250,14 @@ Act as a 15+ year experienced ATS CV writer. The output must be practical, relat
 
 STRICT RULES — follow exactly, never do extra, never do less:
 1. Professional Summary: exactly ~60 words, keyword-rich, role-aligned to the JD. HARD CAP: ≤ 65 words. Count before outputting.
-2. Core Competencies: exactly ~60 words, comma-separated, all terms directly relevant to the JD. HARD CAP: ≤ 65 words. Count before outputting.
+2. Core Competencies: comma-separated list of ALL JD tools, software, methodologies, and domain skills. This is your PRIMARY keyword coverage layer — include every relevant JD term not already prominent in bullets. HARD CAP: ≤ 70 words. Count before outputting.
 3. Each role: exactly 4 bullets. FORMAT: "Two To Four Word Label: description sentence."
    — The label (before the colon) is MANDATORY on every bullet. Plain text only — no HTML, no asterisks, no markdown.
    — BEFORE writing each bullet, confirm it starts with a label followed by ': '.
    — HARD CAP per bullet description (the text AFTER the label and colon): ≤ 30 words. Count words in the description part only.
 4. All 8 labels across both roles must be completely unique — zero repeats across chintamani and accenture.
-5. Distribute ATS keywords from the JD evenly — one keyword family per role max, no repetition across roles.
+5. Distribute ATS keywords across ALL sections: summary, Core Competencies, bullets, project descriptions.
+   Keywords may appear in both Core Competencies AND a bullet if they are central to the role.
 6. Metrics: exactly 2–3 bullets per role must contain a specific quantified metric (number, %, time saving).
    The remaining 1–2 bullets per role use a strong qualitative outcome — concrete and specific, never generic.
    Do NOT invent a number to fill a slot. A qualitative outcome is better than a fabricated metric.
@@ -365,13 +369,26 @@ class CVGenerator:
             response.usage.input_tokens, response.usage.output_tokens, cost,
         )
 
-    async def generate_cv_content(self, job: JobListing, feedback: str = "") -> Dict:
+    async def generate_cv_content(
+        self, job: JobListing, feedback: str = "", jd_keywords: list | None = None
+    ) -> Dict:
         prompt = get_prompt("cv_prompt").format(
             title=job.title,
             company=job.company,
             location=job.location,
-            description=job.description[:3000] if job.description else "Not provided.",
+            description=job.description[:5000] if job.description else "Not provided.",
         )
+        if jd_keywords:
+            kw_block = (
+                f"\n\n{'='*50}\n"
+                "MANDATORY ATS KEYWORDS — embed every item from this list verbatim (exact spelling/casing).\n"
+                "Distribute across: summary, Core Competencies, bullet descriptions, and project descriptions.\n"
+                "Core Competencies is your primary coverage layer — list ALL tools/skills from this list not\n"
+                "already used prominently in bullets.\n"
+                f"{chr(10).join(f'  • {k}' for k in jd_keywords)}\n"
+                f"{'='*50}\n"
+            )
+            prompt = kw_block + "\n" + prompt
         if feedback:
             prompt += (
                 f"\n\n{'='*50}\n"
@@ -384,7 +401,7 @@ class CVGenerator:
         response = await asyncio.to_thread(
             self.client.messages.create,
             model=config.CLAUDE_MODEL,
-            max_tokens=3000,
+            max_tokens=3500,
             system=[{"type": "text", "text": get_prompt("cv_system"), "cache_control": {"type": "ephemeral"}}],
             messages=[{"role": "user", "content": prompt}],
         )
@@ -415,15 +432,25 @@ class CVGenerator:
         return data
 
     async def generate_cl_content(
-        self, job: JobListing, application_notes: str = "", feedback: str = ""
+        self, job: JobListing, application_notes: str = "", feedback: str = "",
+        jd_keywords: list | None = None,
     ) -> Dict:
         prompt = get_prompt("cl_prompt").format(
             title=job.title,
             company=job.company,
             location=job.location,
-            description=job.description[:2500] if job.description else "Not provided.",
+            description=job.description[:4000] if job.description else "Not provided.",
             notes=application_notes or "None",
         )
+        if jd_keywords:
+            kw_block = (
+                f"\n\n{'='*50}\n"
+                "MANDATORY ATS KEYWORDS — weave as many of these as naturally fit into the letter.\n"
+                "Prioritise the first 10 items. Each keyword must appear verbatim (exact spelling/casing).\n"
+                f"{chr(10).join(f'  • {k}' for k in jd_keywords)}\n"
+                f"{'='*50}\n"
+            )
+            prompt = kw_block + "\n" + prompt
         if feedback:
             prompt += (
                 f"\n\n{'='*50}\n"

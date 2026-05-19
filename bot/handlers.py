@@ -28,6 +28,7 @@ from bot.keyboards import (
     keywords_keyboard,
     locations_keyboard,
     main_menu_keyboard,
+    regen_humanize_keyboard,
     regen_keyboard,
     threshold_keyboard,
     tier_keyboard,
@@ -87,6 +88,7 @@ class BotHandlers:
             "/keywords — Show and manage search keywords\n"
             "/locations — Show and manage search locations\n"
             "/threshold — View or set the minimum relevance score (1–10)\n"
+            "/humanize — Toggle the Haiku rewriter on/off for CV + CL\n"
             "/status — Bot stats and config summary\n"
             "/scrapers — Per-scraper last-run, jobs found, error rate\n"
             "/stats — Application funnel: applied → responses → interviews\n"
@@ -1157,12 +1159,36 @@ class BotHandlers:
             action = data.split(":", 1)[1]
             new_state = action == "on"
             bot_settings.set("humanize_enabled", new_state)  # persists + syncs config
+
+            # Detect which context we're in by inspecting the current keyboard:
+            # if there's a "regen:" button present, we're on the quality report —
+            # keep the message text and only refresh the keyboard.
+            # Otherwise we're on the /humanize screen — update text + keyboard.
+            existing_kb = query.message.reply_markup
+            has_regen = existing_kb and any(
+                btn.callback_data and btn.callback_data.startswith("regen:")
+                for row in existing_kb.inline_keyboard
+                for btn in row
+            )
+
             try:
-                await query.edit_message_text(
-                    self._humanize_text(new_state),
-                    parse_mode="HTML",
-                    reply_markup=humanize_keyboard(new_state),
-                )
+                if has_regen:
+                    # Extract job_id from the existing regen button
+                    job_id_from_kb = next(
+                        btn.callback_data.split(":", 1)[1]
+                        for row in existing_kb.inline_keyboard
+                        for btn in row
+                        if btn.callback_data and btn.callback_data.startswith("regen:")
+                    )
+                    await query.edit_message_reply_markup(
+                        reply_markup=regen_humanize_keyboard(job_id_from_kb, new_state),
+                    )
+                else:
+                    await query.edit_message_text(
+                        self._humanize_text(new_state),
+                        parse_mode="HTML",
+                        reply_markup=humanize_keyboard(new_state),
+                    )
             except Exception:
                 pass
             return
@@ -1593,12 +1619,12 @@ class BotHandlers:
                         caption=lbl,
                     ))
 
-            # Send quality report with regenerate button
+            # Send quality report with regenerate + humanize toggle buttons
             await self._tg_send(lambda: bot.send_message(
                 chat_id,
                 quality_report(result),
                 parse_mode="HTML",
-                reply_markup=regen_keyboard(job.job_id),
+                reply_markup=regen_humanize_keyboard(job.job_id, config.HUMANIZE_ENABLED),
             ))
 
             # Send generation expense breakdown
@@ -1709,7 +1735,7 @@ class BotHandlers:
                 chat_id,
                 quality_report(result),
                 parse_mode="HTML",
-                reply_markup=regen_keyboard(job_id),
+                reply_markup=regen_humanize_keyboard(job_id, config.HUMANIZE_ENABLED),
             ))
 
             if result.generation_expense:

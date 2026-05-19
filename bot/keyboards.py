@@ -137,6 +137,23 @@ def regen_keyboard(job_id: str) -> InlineKeyboardMarkup:
     ]])
 
 
+def regen_humanize_keyboard(job_id: str, humanize_enabled: bool) -> InlineKeyboardMarkup:
+    """
+    Combined keyboard shown below the quality report after CV/CL generation.
+    Row 1: Regenerate button
+    Row 2: Humanize toggle (shows current state, tap to flip)
+    """
+    humanize_btn = (
+        InlineKeyboardButton("✅ Humanizer ON",  callback_data="humanize:off")
+        if humanize_enabled else
+        InlineKeyboardButton("⚡ Humanizer OFF", callback_data="humanize:on")
+    )
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("🔄 Regenerate Docs", callback_data=f"regen:{job_id}")],
+        [humanize_btn],
+    ])
+
+
 def gmail_confirm_keyboard(job_id: str, new_status: str) -> InlineKeyboardMarkup:
     """Confirmation keyboard for Gmail-detected status changes."""
     return InlineKeyboardMarkup([[

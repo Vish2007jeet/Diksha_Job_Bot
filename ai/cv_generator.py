@@ -99,6 +99,14 @@ def _build_cv_system() -> str:
         "  • Project descriptions: ≤ 20 words each (enforced separately)\n"
         "Count your words before outputting. If any section exceeds its limit, cut words — do not summarise the limit away.\n\n"
         f"{config.CV_PROFILE_TEXT}\n\n"
+        "━━━ BASE CV — BACKGROUND REFERENCE ━━━\n"
+        "These are the candidate's real experiences, tools, and domain. "
+        "Use them as context to understand what is realistic for this person — "
+        "the companies, seniority level, tools used, and types of work done.\n"
+        "You may craft new bullets that go beyond these examples, as long as they are "
+        "realistic and believable for someone with this background.\n"
+        "Do NOT invent wildly exaggerated values or tools that have no relation to this profile.\n\n"
+        f"{config.CV_BULLETS_TEXT}\n\n"
         "━━━ BULLET FORMAT LAW — zero tolerance, no exceptions ━━━\n"
         "Every single bullet across both roles MUST follow this EXACT format:\n"
         '  "Label: Description sentence with metric."\n\n'
@@ -122,9 +130,10 @@ def _build_cv_system() -> str:
         "Do NOT rotate named patterns. Instead follow these natural variety rules:\n\n"
         "  LENGTH: Mix at least one short punchy description (≤12 words) with at least one detailed one (25+ words) per role.\n"
         "  RHYTHM: No two consecutive bullets may start their description with the same word or verb.\n"
-        "  METRICS: Exactly 2–3 bullets per role must contain a specific quantified metric (number, %, time saving).\n"
-        "    One bullet per role may use a strong qualitative outcome instead — e.g. 'giving the ops team a single source of truth for the first time' or 'findings directly shaped a process redesign the client implemented in Q3'.\n"
+        "  METRICS: Use a metric wherever it makes the bullet stronger and the value stays realistic for this profile.\n"
+        "    Do not force a number into every bullet — some bullets read better as concrete qualitative outcomes.\n"
         "    Qualitative outcomes must be specific and concrete — never vague ('improved efficiency', 'enhanced performance').\n"
+        "    Numbers should feel earned: percentages in the 5–30% range, time savings in minutes/hours, record counts in thousands.\n"
         "  STORYTELLING: Where a metric exists, show WHY it matters — not just the number. E.g. 'catching a 12% discrepancy the finance team had missed for two quarters' reads like a real event.\n"
         "  TOOLS: Name a specific tool only where it genuinely fits — do not force a tool mention into every bullet.\n\n"
         "Good variety looks unpredictable — after reading one bullet, the reader cannot guess the structure of the next.\n"
@@ -140,12 +149,15 @@ def _build_cv_system() -> str:
         "- Cover analysis, insight, operations, reporting, and stakeholder impact — distributed naturally across bullets.\n"
         "- Combine data analysis + business insight + operational language throughout.\n\n"
         "CONTENT RULES:\n"
-        "- Tailored 100% to the job description.\n"
+        "- REALISM: Keep all metrics and claims realistic for someone with Diksha's background "
+        "(2–3 years ops/analytics, Accenture + Chintamani, tools: Power BI, Python, SQL, Excel, SAP). "
+        "Numbers should feel earned — percentages in the 5–30% range, time savings in minutes/hours, not hundreds of millions.\n"
+        "  No fake tools or roles that have no relation to this profile.\n"
+        "- Tailor every bullet to the JD — pick the angle, emphasis, and terminology that best fits this specific role.\n"
+        "- You may craft new bullets beyond the background reference examples, as long as they are believable for this person.\n"
         "- Technical depth and business application both present across the 4 bullets — not necessarily in every single one.\n"
         "- Sound natural and confident — not robotic or AI-generated. Act as a 15+ year experienced ATS CV writer.\n"
-        "- 2–3 bullets per role must have a specific, believable quantified metric.\n"
-        "- 1 bullet per role may use a strong qualitative outcome — must be concrete and specific, never generic.\n"
-        "- Do NOT invent metrics to fill a slot. If a natural number does not exist, write a qualitative outcome instead.\n\n"
+        "- Use metrics where they strengthen the bullet; use concrete qualitative outcomes where a metric would feel forced.\n\n"
         "SECTION ORDER: Summary → Core Competencies → Professional Experience → Projects → Education → Technical Skills\n\n"
         'BANNED WORDS: leveraged, utilised, utilized, cutting-edge, delve, foster, garner, showcase, transformative, synergy, proactive, pivotal, crucial, enhance, "serves as", "boasts", "state-of-the-art", successfully, robust, seamlessly, impactful, "result-driven", "innovative solutions", "best-in-class", furthermore, moreover, "strong work ethic", "team player", "attention to detail", "proven track record", "detail-oriented", "highly motivated", "self-motivated", "played a key role in", "was involved in", "helped to achieve", "it is worth noting", "needless to say"\n\n'
         "BANNED PATTERNS:\n"
@@ -258,9 +270,9 @@ STRICT RULES — follow exactly, never do extra, never do less:
 4. All 8 labels across both roles must be completely unique — zero repeats across chintamani and accenture.
 5. Distribute ATS keywords across ALL sections: summary, Core Competencies, bullets, project descriptions.
    Keywords may appear in both Core Competencies AND a bullet if they are central to the role.
-6. Metrics: exactly 2–3 bullets per role must contain a specific quantified metric (number, %, time saving).
-   The remaining 1–2 bullets per role use a strong qualitative outcome — concrete and specific, never generic.
-   Do NOT invent a number to fill a slot. A qualitative outcome is better than a fabricated metric.
+6. Metrics: use a metric wherever it makes the bullet stronger and stays realistic for this profile (5–30% range, minutes/hours saved, thousands of records).
+   Do not force a number into every bullet — concrete qualitative outcomes are equally strong.
+   Keep all values believable for 2–3 years experience in ops/analytics at Accenture + Chintamani level.
 7. Both project descriptions: ONE sentence only, max 20 words each. Format: "To [verb] [what] using [tool] to [outcome]." Tailored to JD. No paragraph, no multiple sentences.
 8. Content must be practical, relatable, and not detectable as AI-written.
 9. Vary description length naturally — at least one short (≤12 words) and one detailed (20-30 words) per role.
@@ -273,16 +285,16 @@ Respond with this exact JSON schema (no extra keys, no missing keys):
   "summary": "<~60 word professional summary tailored to JD>",
   "competencies": "<~60 word comma-separated core competencies tailored to JD>",
   "chintamani": [
-    "Spend Analysis: Mapped procurement costs across 14 supplier contracts using Excel Power Query, cutting monthly reporting effort by 30%.",
-    "Variance Tracking: Built a weekly deviation report in Excel that flagged budget overruns across 6 categories before month-end close — catching a 12% discrepancy the finance team had missed for two quarters.",
-    "Supplier Review: Consolidated five separate vendor data feeds into one SAP-linked dashboard, giving the ops team a single source of truth for the first time.",
-    "Data Pipeline: Python script automated three manual Excel templates processed weekly, freeing roughly 8 hours of analyst time."
+    "Two To Four Word Label: one sentence rewritten from the base CV bullets, angle tailored to this JD.",
+    "Two To Four Word Label: one sentence rewritten from the base CV bullets, qualitative outcome — specific and concrete.",
+    "Two To Four Word Label: one sentence rewritten from the base CV bullets, metric only if one naturally exists in the base CV.",
+    "Two To Four Word Label: one sentence rewritten from the base CV bullets, operational or stakeholder impact."
   ],
   "accenture": [
-    "Reporting Automation: Rebuilt the insurance operations reconciliation process in Python (Pandas), cutting case resolution time by 18% across a 50,000-record weekly dataset.",
-    "Dashboard Design: Delivered a Power BI KPI dashboard for a cross-functional client team; reporting cycle dropped from 6 hours to 45 minutes.",
-    "Client Analytics: Analysed three years of claims data in SQL to surface operational bottlenecks — findings directly shaped a process redesign the client implemented in Q3.",
-    "SLA Monitoring: Maintained daily tracking of service-level compliance for a BFS client across 12 operational streams, escalating anomalies to senior stakeholders within 24 hours."
+    "Two To Four Word Label: one sentence rewritten from the base CV bullets, angle tailored to this JD.",
+    "Two To Four Word Label: one sentence rewritten from the base CV bullets, metric only if one naturally exists in the base CV.",
+    "Two To Four Word Label: one sentence rewritten from the base CV bullets, analysis or insight that drove a real decision.",
+    "Two To Four Word Label: one sentence rewritten from the base CV bullets, process or reporting improvement."
   ],
   "project1_desc": "<ONE sentence only, max 20 words: 'To [verb] [what] using [tool] to [outcome].' — Supplier Spend Analytics project, tailored to JD>",
   "project2_desc": "<ONE sentence only, max 20 words: 'To [verb] [what] using [tool] to [outcome].' — Insurance Operations Reporting Automation project, tailored to JD>"

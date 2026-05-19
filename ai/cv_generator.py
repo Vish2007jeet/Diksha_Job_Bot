@@ -390,7 +390,26 @@ class CVGenerator:
         )
         self._log_cost(job.job_id, "cv", response)
 
-        raw = self._clean_json(response.content[0].text)
+        if response.stop_reason == "max_tokens":
+            logger.warning(
+                f"CV generation hit max_tokens for {job.title} @ {job.company} — "
+                "response may be truncated; will retry."
+            )
+
+        raw_text = response.content[0].text if response.content else ""
+        if not raw_text.strip():
+            logger.warning(
+                f"CV generation returned empty content for {job.title} @ {job.company} "
+                f"(stop_reason={response.stop_reason!r}) — will retry."
+            )
+            raise ValueError(f"Empty CV response from Claude (stop_reason={response.stop_reason!r})")
+
+        try:
+            raw = self._clean_json(raw_text)
+        except Exception as exc:
+            logger.warning(f"CV JSON parse failed: {exc} | Raw (first 300 chars): {raw_text[:300]!r}")
+            raise
+
         data = json.loads(raw)
         logger.info(f"CV generated — {len(data)} sections ready")
         return data
@@ -423,7 +442,26 @@ class CVGenerator:
         )
         self._log_cost(job.job_id, "cl", response)
 
-        raw = self._clean_json(response.content[0].text)
+        if response.stop_reason == "max_tokens":
+            logger.warning(
+                f"CL generation hit max_tokens for {job.title} @ {job.company} — "
+                "response may be truncated; will retry."
+            )
+
+        raw_text = response.content[0].text if response.content else ""
+        if not raw_text.strip():
+            logger.warning(
+                f"CL generation returned empty content for {job.title} @ {job.company} "
+                f"(stop_reason={response.stop_reason!r}) — will retry."
+            )
+            raise ValueError(f"Empty CL response from Claude (stop_reason={response.stop_reason!r})")
+
+        try:
+            raw = self._clean_json(raw_text)
+        except Exception as exc:
+            logger.warning(f"CL JSON parse failed: {exc} | Raw (first 300 chars): {raw_text[:300]!r}")
+            raise
+
         data = json.loads(raw)
         logger.info(f"CL generated — {len(data)} sections ready")
         return data
@@ -432,6 +470,10 @@ class CVGenerator:
     def _clean_json(text: str) -> str:
         import json as _json
         text = text.strip()
+
+        if not text:
+            raise ValueError("Claude returned an empty response — cannot parse JSON.")
+
         # Strip markdown code fences
         if text.startswith("```"):
             parts = text.split("```")
@@ -439,13 +481,19 @@ class CVGenerator:
             if text.startswith("json"):
                 text = text[4:]
             text = text.strip()
+
         # Skip any prose before the first JSON object/array
         for bracket in ("{", "["):
             idx = text.find(bracket)
             if idx != -1:
                 text = text[idx:]
                 break
+
         text = text.strip()
+
+        if not text:
+            raise ValueError("No JSON object found in Claude's response.")
+
         # raw_decode extracts exactly the first valid JSON object, ignoring any
         # trailing text or second object Claude may have appended on retries.
         obj, _ = _json.JSONDecoder().raw_decode(text)   # raises JSONDecodeError if still invalid

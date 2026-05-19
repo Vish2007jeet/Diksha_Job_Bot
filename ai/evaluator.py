@@ -268,8 +268,7 @@ class DocumentEvaluator:
             banned_words_found = banned,
         )
         logger.info(
-            "  [CV CHECK] ATS=%d | missing=%d | banned=%s",
-            result.ats_score, len(result.missing_keywords), banned or "none",
+            f"  [CV CHECK] ATS={result.ats_score} | missing={len(result.missing_keywords)} | banned={banned or 'none'}"
         )
         return result
 
@@ -284,7 +283,6 @@ class DocumentEvaluator:
             banned_words_found = banned,
         )
         logger.info(
-            "  [CL CHECK] ATS=%d | missing=%d | banned=%s",
-            result.ats_score, len(result.missing_keywords), banned or "none",
+            f"  [CL CHECK] ATS={result.ats_score} | missing={len(result.missing_keywords)} | banned={banned or 'none'}"
         )
         return result

@@ -121,7 +121,7 @@ class JobOrchestrator:
                         parse_mode="HTML",
                     )
                 except Exception as exc:
-                    logger.warning("Telegram send failed: %s", exc)
+                    logger.warning(f"Telegram send failed: {exc}")
             return
 
         self._stop_event.clear()
@@ -164,7 +164,7 @@ class JobOrchestrator:
                         parse_mode="HTML",
                     )
                 except Exception as exc:
-                    logger.warning("Telegram send failed: %s", exc)
+                    logger.warning(f"Telegram send failed: {exc}")
 
             # ── Health check at scan start ───────────────────────
             try:
@@ -250,7 +250,7 @@ class JobOrchestrator:
                         parse_mode="HTML",
                     )
                 except Exception as exc:
-                    logger.warning("Telegram send failed: %s", exc)
+                    logger.warning(f"Telegram send failed: {exc}")
 
             total_found = len(all_scraped)
             logger.info(f"Step 1 — Scraping done: {time.time() - _t1:.1f}s, {total_found} jobs found")
@@ -409,7 +409,7 @@ class JobOrchestrator:
                         try:
                             await bot.send_message(chat_id=config.TELEGRAM_CHAT_ID, text=msg, parse_mode="HTML")
                         except Exception as exc:
-                            logger.warning("Telegram send failed: %s", exc)
+                            logger.warning(f"Telegram send failed: {exc}")
 
             cost_before = self.tracker.get_cost_summary().get("total", 0.0)
 
@@ -479,7 +479,7 @@ class JobOrchestrator:
                         break
                     except Exception as exc:
                         if _attempt == 2:
-                            logger.error("Scoring batch failed after 3 attempts: %s", exc)
+                            logger.error(f"Scoring batch failed after 3 attempts: {exc}")
                         else:
                             _wait = 2 ** (_attempt + 1)  # 2s, 4s
                             logger.warning(
@@ -511,7 +511,7 @@ class JobOrchestrator:
             # Flush any remaining relevant jobs at end of scan
             if bot and not self._stop_event.is_set():
                 await _flush_notify(force=True)
-            logger.info("Step 4+5 — Scoring done: %.1fs for %d jobs", time.time() - _t45, len(new_jobs))
+            logger.info(f"Step 4+5 — Scoring done: {time.time() - _t45:.1f}s for {len(new_jobs)} jobs")
 
             # ── Step 6: Final summary + Excel sync ──────────────
             if not self._stop_event.is_set() and bot:
@@ -731,7 +731,7 @@ class JobOrchestrator:
                         parse_mode="HTML",
                     )
                 except Exception as exc:
-                    logger.warning("Telegram send failed: %s", exc)
+                    logger.warning(f"Telegram send failed: {exc}")
 
     async def _send_stopped(self, bot) -> None:
         logger.info("Scan stopped by user request.")
@@ -743,4 +743,4 @@ class JobOrchestrator:
                     parse_mode="HTML",
                 )
             except Exception as exc:
-                logger.warning("Telegram send failed: %s", exc)
+                logger.warning(f"Telegram send failed: {exc}")

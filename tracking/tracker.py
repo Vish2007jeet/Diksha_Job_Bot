@@ -685,7 +685,7 @@ class JobTracker:
                 )
                 conn.commit()
         except sqlite3.Error as exc:
-            logger.error("DB update_status failed for %s: %s", job_id, exc)
+            logger.error(f"DB update_status failed for {job_id}: {exc}")
             raise
 
         # ── Google Sheets: sync ─────────────────────────────────
@@ -733,7 +733,7 @@ class JobTracker:
                 )
                 conn.commit()
         except sqlite3.Error as exc:
-            logger.error("DB bulk_skip failed: %s", exc)
+            logger.error(f"DB bulk_skip failed: {exc}")
             raise
         # One Sheets read for all IDs at once
         try:

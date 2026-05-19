@@ -11,6 +11,7 @@ not on apply. See bot/handlers.py gmail_confirm handler.
 from __future__ import annotations
 
 import asyncio
+import json
 import re
 from typing import List
 
@@ -27,8 +28,9 @@ _name_slug = config.USER_NAME_SHORT.replace(" ", "_")
 CV_FILENAME = f"CV_{_name_slug}"
 CL_FILENAME = f"CL_{_name_slug}"
 
-_SCORE_TARGET = 80   # minimum ATS score before retrying
-_MAX_RETRIES  = 2    # up to 2 retries = 3 total attempts per document
+_SCORE_TARGET       = 80    # minimum ATS score before retrying
+_MAX_RETRIES        = 2     # up to 2 retries = 3 total attempts per document
+_FEEDBACK_MAX_CHARS = 1500  # cap feedback injected into retry prompts to avoid context overflow
 
 _MODEL_SHORT = {
     "claude-haiku-4-5-20251001": "Haiku 4.5",
@@ -86,7 +88,7 @@ def _build_expense_report(job, tracker) -> str:
             lines.append(f"  Month to date:      <b>${month_total:.2f}</b>")
         return "\n".join(lines)
     except Exception as exc:
-        logger.warning("Expense report failed: %s", exc)
+        logger.warning(f"Expense report failed: {exc}")
         return ""
 
 
@@ -287,8 +289,8 @@ class DocumentPipeline:
         out_dir = config.OUTPUT_DIR / folder_name
         out_dir.mkdir(parents=True, exist_ok=True)
 
-        logger.info("Output folder: %s", folder_name)
-        logger.info("Generating docs for: %s @ %s", job.title, job.company)
+        logger.info(f"Output folder: {folder_name}")
+        logger.info(f"Generating docs for: {job.title} @ {job.company}")
 
         jd = job.description or ""
 
@@ -312,9 +314,9 @@ class DocumentPipeline:
         ]))
         cl_warnings = check_cl_quality(_cl_full_text, job.company)
         if cl_warnings:
-            logger.warning("CL quality issues for %s @ %s: %s", job.title, job.company, cl_warnings)
+            logger.warning(f"CL quality issues for {job.title} @ {job.company}: {cl_warnings}")
         else:
-            logger.info("CL quality check passed for %s @ %s", job.title, job.company)
+            logger.info(f"CL quality check passed for {job.title} @ {job.company}")
 
         # Step 2: Apply to templates
         suffix = f"{company_safe}_{role_type}_{position_kw}"
@@ -328,7 +330,7 @@ class DocumentPipeline:
         cv_pdf = self.exporter.to_pdf(cv_docx)
         cl_pdf = self.exporter.to_pdf(cl_docx)
 
-        logger.info("Documents ready in: %s", out_dir)
+        logger.info(f"Documents ready in: {out_dir}")
 
         # All scores below come from the independent evaluator (not self-assessed).
         # banned_words_found merges CV + CL Python-scanner results — should be [].
@@ -369,13 +371,15 @@ class DocumentPipeline:
             try:
                 content = await self.generator.generate_cv_content(job, feedback=feedback)
             except Exception as exc:
+                action = "retrying" if attempt < _MAX_RETRIES else "giving up"
                 logger.warning(
-                    "CV generation attempt %d raised %s: %s — %s",
-                    attempt + 1, type(exc).__name__, exc,
-                    "retrying" if attempt < _MAX_RETRIES else "giving up",
+                    f"CV generation attempt {attempt + 1} raised {type(exc).__name__}: {exc} — {action}"
                 )
                 if attempt < _MAX_RETRIES:
-                    feedback = feedback or ""
+                    # Reset feedback on parse errors — bad feedback may have caused the failure
+                    if isinstance(exc, (ValueError, json.JSONDecodeError)):
+                        feedback = ""
+                        logger.warning("CV feedback cleared after parse error to avoid context overflow.")
                     continue
                 raise
 
@@ -383,7 +387,7 @@ class DocumentPipeline:
             bad = _check_bullet_labels(content)
             if bad:
                 for b in bad:
-                    logger.warning("CV bullet missing label (attempt %d): %s", attempt + 1, b)
+                    logger.warning(f"CV bullet missing label (attempt {attempt + 1}): {b}")
                 if len(bad) > 1 and attempt < _MAX_RETRIES:
                     label_msg = (
                         f"BULLET FORMAT ERROR: {len(bad)} bullet(s) are missing the required "
@@ -392,17 +396,15 @@ class DocumentPipeline:
                         "Fix: every bullet MUST start with 'Two To Four Word Label: description'."
                     )
                     feedback = label_msg + ("\n\n" + feedback if feedback else "")
-                    logger.warning(
-                        "CV bullet label check failed (%d bad) — retry %d/%d",
-                        len(bad), attempt + 1, _MAX_RETRIES,
-                    )
+                    feedback = feedback[:_FEEDBACK_MAX_CHARS]
+                    logger.warning(f"CV bullet label check failed ({len(bad)} bad) — retry {attempt + 1}/{_MAX_RETRIES}")
                     continue  # skip humanise/evaluate; go straight to next attempt
 
             # Word count check — short-circuit if any section exceeds its 2-page cap
             over_limit = _check_cv_word_counts(content)
             if over_limit:
                 for v in over_limit:
-                    logger.warning("CV word-count violation (attempt %d): %s", attempt + 1, v)
+                    logger.warning(f"CV word-count violation (attempt {attempt + 1}): {v}")
                 if attempt < _MAX_RETRIES:
                     count_msg = (
                         f"2-PAGE OVERFLOW: {len(over_limit)} section(s) exceed their word limits.\n"
@@ -410,10 +412,8 @@ class DocumentPipeline:
                         + "\nTrim each section to its cap — the CV must fit in 2 pages."
                     )
                     feedback = count_msg + ("\n\n" + feedback if feedback else "")
-                    logger.warning(
-                        "CV word-count check failed (%d violations) — retry %d/%d",
-                        len(over_limit), attempt + 1, _MAX_RETRIES,
-                    )
+                    feedback = feedback[:_FEEDBACK_MAX_CHARS]
+                    logger.warning(f"CV word-count check failed ({len(over_limit)} violations) — retry {attempt + 1}/{_MAX_RETRIES}")
                     continue  # skip humanise/evaluate; go straight to next attempt
 
             content = await self._humanizer.humanize_cv(job.job_id, content)
@@ -427,16 +427,16 @@ class DocumentPipeline:
                 break
 
             logger.warning(
-                "CV ATS=%d < %d (banned=%s) — retry %d/%d for %s @ %s",
-                ev.ats_score, _SCORE_TARGET, ev.banned_words_found or "none",
-                attempt + 1, _MAX_RETRIES, job.title, job.company,
+                f"CV ATS={ev.ats_score} < {_SCORE_TARGET} "
+                f"(banned={ev.banned_words_found or 'none'}) — "
+                f"retry {attempt + 1}/{_MAX_RETRIES} for {job.title} @ {job.company}"
             )
             feedback = ev.feedback_block()
+            feedback = feedback[:_FEEDBACK_MAX_CHARS]
 
         logger.info(
-            "CV final: ATS=%d | missing=%d | banned=%s",
-            best_eval.ats_score, len(best_eval.missing_keywords),
-            best_eval.banned_words_found or "none",
+            f"CV final: ATS={best_eval.ats_score} | missing={len(best_eval.missing_keywords)} | "
+            f"banned={best_eval.banned_words_found or 'none'}"
         )
         return best_content, best_eval
 
@@ -455,13 +455,14 @@ class DocumentPipeline:
                     job, application_notes=application_notes, feedback=feedback
                 )
             except Exception as exc:
+                action = "retrying" if attempt < _MAX_RETRIES else "giving up"
                 logger.warning(
-                    "CL generation attempt %d raised %s: %s — %s",
-                    attempt + 1, type(exc).__name__, exc,
-                    "retrying" if attempt < _MAX_RETRIES else "giving up",
+                    f"CL generation attempt {attempt + 1} raised {type(exc).__name__}: {exc} — {action}"
                 )
                 if attempt < _MAX_RETRIES:
-                    feedback = feedback or ""
+                    if isinstance(exc, (ValueError, json.JSONDecodeError)):
+                        feedback = ""
+                        logger.warning("CL feedback cleared after parse error to avoid context overflow.")
                     continue
                 raise
             content = await self._humanizer.humanize_cl(job.job_id, content)
@@ -475,16 +476,16 @@ class DocumentPipeline:
                 break
 
             logger.warning(
-                "CL ATS=%d < %d (banned=%s) — retry %d/%d for %s @ %s",
-                ev.ats_score, _SCORE_TARGET, ev.banned_words_found or "none",
-                attempt + 1, _MAX_RETRIES, job.title, job.company,
+                f"CL ATS={ev.ats_score} < {_SCORE_TARGET} "
+                f"(banned={ev.banned_words_found or 'none'}) — "
+                f"retry {attempt + 1}/{_MAX_RETRIES} for {job.title} @ {job.company}"
             )
             feedback = ev.feedback_block()
+            feedback = feedback[:_FEEDBACK_MAX_CHARS]
 
         logger.info(
-            "CL final: ATS=%d | missing=%d | banned=%s",
-            best_eval.ats_score, len(best_eval.missing_keywords),
-            best_eval.banned_words_found or "none",
+            f"CL final: ATS={best_eval.ats_score} | missing={len(best_eval.missing_keywords)} | "
+            f"banned={best_eval.banned_words_found or 'none'}"
         )
         return best_content, best_eval
 

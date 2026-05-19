@@ -7,10 +7,13 @@ Starts three concurrent services:
   3. APScheduler (periodic auto-scan)
 
 Usage:
-  python main.py
+  python main.py                   # default port from config (8000)
+  python main.py --port 8001       # override API port (run a second instance)
+  python main.py --no-api          # skip API server entirely
 """
 from __future__ import annotations
 
+import argparse
 import asyncio
 import signal
 import sys
@@ -27,6 +30,18 @@ from utils.keywords import keyword_manager
 from utils.logger import logger
 
 
+def _parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Job Bot")
+    parser.add_argument(
+        "--port", type=int, default=None,
+        help="Override API server port (default: API_PORT from config/env)",
+    )
+    parser.add_argument(
+        "--no-api", action="store_true",
+        help="Disable the FastAPI server (useful when running multiple instances)",
+    )
+    return parser.parse_args()
+
 
 def _validate_config() -> None:
     missing = [k for k, v in {
@@ -41,18 +56,29 @@ def _validate_config() -> None:
         )
 
 
-def run_api_server() -> None:
-    """Run FastAPI in a background thread."""
-    uvicorn.run(
-        fastapi_app,
-        host=config.API_HOST,
-        port=config.API_PORT,
-        log_level="warning",
-    )
+def run_api_server(port: int) -> None:
+    """Run FastAPI in a background thread. Logs a warning on port conflict instead of crashing."""
+    try:
+        uvicorn.run(
+            fastapi_app,
+            host=config.API_HOST,
+            port=port,
+            log_level="warning",
+        )
+    except OSError as exc:
+        # Port already in use — non-fatal: Telegram bot + scheduler still run fine
+        logger.warning(
+            "API server could not start on port %d: %s. "
+            "Use --port <number> to pick a free port, or --no-api to suppress this. "
+            "Telegram bot and scheduler are still running.",
+            port, exc,
+        )
 
 
-async def main() -> None:
+async def main(args: argparse.Namespace) -> None:
     _validate_config()
+
+    api_port = args.port if args.port is not None else config.API_PORT
 
     # ── Load live keywords from keywords.json (not .env) ──────
     broad_kw = keyword_manager.get_broad()
@@ -74,7 +100,7 @@ async def main() -> None:
     logger.info(f"  Min Score     : {config.MIN_RELEVANCE_SCORE}  (change with /threshold)")
     logger.info(f"  Scan Interval : every {config.SCAN_INTERVAL_HOURS}h")
     logger.info(f"  Max Jobs/Scan : {config.MAX_JOBS_PER_SCAN}")
-    logger.info(f"  API Port      : {config.API_PORT}")
+    logger.info(f"  API Port      : {api_port}{'  (disabled)' if args.no_api else ''}")
     logger.info(f"  Telegram ID   : {config.TELEGRAM_CHAT_ID}")
     logger.info(LINE)
     logger.info(f"  Locations ({len(locations)}):")
@@ -99,9 +125,14 @@ async def main() -> None:
     await application.initialize()
 
     # ── FastAPI (background thread) ────────────────────────────
-    api_thread = threading.Thread(target=run_api_server, daemon=True)
-    api_thread.start()
-    logger.info(f"API server started on http://{config.API_HOST}:{config.API_PORT}")
+    if args.no_api:
+        logger.info("API server disabled (--no-api).")
+    else:
+        api_thread = threading.Thread(
+            target=run_api_server, args=(api_port,), daemon=True
+        )
+        api_thread.start()
+        logger.info(f"API server started on http://{config.API_HOST}:{api_port}")
 
     # ── Scheduler ──────────────────────────────────────────────
     scheduler = AsyncIOScheduler()
@@ -160,6 +191,6 @@ async def main() -> None:
 
 if __name__ == "__main__":
     try:
-        asyncio.run(main())
+        asyncio.run(main(_parse_args()))
     except KeyboardInterrupt:
         logger.info("Bye!")

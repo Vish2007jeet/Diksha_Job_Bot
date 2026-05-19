@@ -726,7 +726,7 @@ class InterviewPrepGenerator:
                 response.usage.input_tokens, response.usage.output_tokens, cost,
             )
         except Exception as exc:
-            logger.debug("[interview_prep] cost log failed: %s", exc)
+            logger.debug(f"[interview_prep] cost log failed: {exc}")
 
     async def generate(
         self,
@@ -735,7 +735,7 @@ class InterviewPrepGenerator:
         filename_suffix: str = "",
     ) -> Optional[Path]:
         import asyncio
-        logger.info("[interview_prep] Starting 4-call generation for %s @ %s", job.title, job.company)
+        logger.info(f"[interview_prep] Starting 4-call generation for {job.title} @ {job.company}")
 
         desc = (job.description or "Not provided.")[:3000]
         fmt = dict(title=job.title, company=job.company, location=job.location, description=desc)
@@ -748,7 +748,7 @@ class InterviewPrepGenerator:
                 job.job_id,
                 "interview_prep_hr",
             )
-            logger.info("[interview_prep] Call 1 (HR) done -- %d top-level keys", len(hr_data))
+            logger.info(f"[interview_prep] Call 1 (HR) done -- {len(hr_data)} top-level keys")
 
             # Call 2: STAR Behavioural only (16 QAs)
             star_data = await asyncio.to_thread(
@@ -757,7 +757,7 @@ class InterviewPrepGenerator:
                 job.job_id,
                 "interview_prep_star",
             )
-            logger.info("[interview_prep] Call 2 (STAR) done -- %d top-level keys", len(star_data))
+            logger.info(f"[interview_prep] Call 2 (STAR) done -- {len(star_data)} top-level keys")
 
             # Call 3: Technical Domain + CV Defence (9 QAs)
             tech_data = await asyncio.to_thread(
@@ -766,7 +766,7 @@ class InterviewPrepGenerator:
                 job.job_id,
                 "interview_prep_tech",
             )
-            logger.info("[interview_prep] Call 3 (Tech+CVD) done -- %d top-level keys", len(tech_data))
+            logger.info(f"[interview_prep] Call 3 (Tech+CVD) done -- {len(tech_data)} top-level keys")
 
             # Call 4: CV Bullet-Point STAR Defence (18 bullets)
             cv_star_data = await asyncio.to_thread(
@@ -775,13 +775,13 @@ class InterviewPrepGenerator:
                 job.job_id,
                 "interview_prep_cv_star",
             )
-            logger.info("[interview_prep] Call 4 (CV STAR) done -- %d top-level keys", len(cv_star_data))
+            logger.info(f"[interview_prep] Call 4 (CV STAR) done -- {len(cv_star_data)} top-level keys")
 
         except json.JSONDecodeError as exc:
-            logger.error("[interview_prep] JSON parse error: %s", exc)
+            logger.error(f"[interview_prep] JSON parse error: {exc}")
             return None
         except Exception as exc:
-            logger.error("[interview_prep] Claude call failed: %s", exc)
+            logger.error(f"[interview_prep] Claude call failed: {exc}")
             return None
 
         # Merge call 2 + call 3 into one dict for the renderer
@@ -792,5 +792,5 @@ class InterviewPrepGenerator:
         suffix = filename_suffix or job.company.replace(" ", "_")
         out_path = out_dir / f"Interview_Prep_{suffix}.html"
         out_path.write_text(html_content, encoding="utf-8")
-        logger.info("[interview_prep] Saved -> %s (%d chars)", out_path.name, len(html_content))
+        logger.info(f"[interview_prep] Saved -> {out_path.name} ({len(html_content)} chars)")
         return out_path

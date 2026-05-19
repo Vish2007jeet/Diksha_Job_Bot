@@ -1709,7 +1709,7 @@ class BotHandlers:
 
         job_dict = self.tracker.get_job(job_id)
         if not job_dict:
-            logger.warning("interview_prep: job %s not found in DB", job_id)
+            logger.warning(f"interview_prep: job {job_id} not found in DB")
             return
 
         job = self._dict_to_job(job_dict)
@@ -1750,7 +1750,7 @@ class BotHandlers:
                     file_paths=[str(ip_path)],
                 )
             except Exception as exc:
-                logger.warning("interview_prep: Drive upload failed (non-fatal): %s", exc)
+                logger.warning(f"interview_prep: Drive upload failed (non-fatal): {exc}")
 
             # Send the HTML file
             with open(ip_path, "rb") as f:
@@ -1765,7 +1765,7 @@ class BotHandlers:
                     parse_mode="HTML",
                 )
 
-            logger.info("interview_prep: sent for %s @ %s", job.title, job.company)
+            logger.info(f"interview_prep: sent for {job.title} @ {job.company}")
 
         except Exception as exc:
             logger.exception("interview_prep generation failed: %s", exc)

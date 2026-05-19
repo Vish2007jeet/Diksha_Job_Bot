@@ -146,12 +146,12 @@ class ContentHumanizer:
                     if len(v) == len(cv_data[k]):
                         cv_data[k] = v
                     else:
-                        logger.warning("Humanizer: bullet count mismatch for %s — keeping original", k)
+                        logger.warning(f"Humanizer: bullet count mismatch for {k} — keeping original")
                 elif isinstance(v, str):
                     cv_data[k] = v
             logger.info("  [Humanizer] CV rewrite done")
         except Exception as exc:
-            logger.warning("Humanizer CV rewrite failed: %s — keeping original", exc)
+            logger.warning(f"Humanizer CV rewrite failed: {exc} — keeping original")
 
         return cv_data
 
@@ -177,6 +177,6 @@ class ContentHumanizer:
                     cl_data[k] = v
             logger.info("  [Humanizer] CL rewrite done")
         except Exception as exc:
-            logger.warning("Humanizer CL rewrite failed: %s — keeping original", exc)
+            logger.warning(f"Humanizer CL rewrite failed: {exc} — keeping original")
 
         return cl_data

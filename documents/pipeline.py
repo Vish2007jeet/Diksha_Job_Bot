@@ -366,10 +366,18 @@ class DocumentPipeline:
         # Stage 1: Extract ATS keywords from JD (Haiku, ~$0.0005) — runs before generation
         jd_keywords = await _extract_jd_keywords(jd, tracker=self._tracker, job_id=job.job_id)
 
-        # Steps 2–5: Generate → Humanize → Evaluate with retry loops (CV + CL concurrently)
-        (cv_content, cv_eval), (cl_content, cl_eval) = await asyncio.gather(
-            self._cv_loop(job, jd, jd_keywords=jd_keywords),
-            self._cl_loop(job, jd, application_notes, jd_keywords=jd_keywords),
+        # CV runs first so the CL can reference its actual bullets
+        cv_content, cv_eval = await self._cv_loop(job, jd, jd_keywords=jd_keywords)
+
+        # Skip CL entirely if CV never reached the minimum threshold — saves cost
+        if cv_eval.ats_score < _SCORE_TARGET:
+            raise ValueError(
+                f"CV ATS score {cv_eval.ats_score}/100 is below the minimum {_SCORE_TARGET} "
+                f"after all retries — cover letter not generated."
+            )
+
+        cl_content, cl_eval = await self._cl_loop(
+            job, jd, application_notes, jd_keywords=jd_keywords, cv_content=cv_content
         )
 
         for content, ev in ((cv_content, cv_eval), (cl_content, cl_eval)):
@@ -517,11 +525,12 @@ class DocumentPipeline:
         )
         return best_content, best_eval
 
-    async def _cl_loop(self, job, jd: str, application_notes: str, jd_keywords: list | None = None):
+    async def _cl_loop(self, job, jd: str, application_notes: str, jd_keywords: list | None = None, cv_content: dict | None = None):
         """
         Generate → Humanize → Evaluate loop for the Cover Letter.
         Mirrors _cv_loop: retries with evaluator feedback until score >= _SCORE_TARGET
         or retries are exhausted; always keeps the best result seen.
+        cv_content is the already-generated CV so the CL can reference its bullets.
         """
         best_content, best_eval = None, None
         feedback = ""
@@ -530,7 +539,7 @@ class DocumentPipeline:
             try:
                 content = await self.generator.generate_cl_content(
                     job, application_notes=application_notes, feedback=feedback,
-                    jd_keywords=jd_keywords,
+                    jd_keywords=jd_keywords, cv_content=cv_content,
                 )
             except Exception as exc:
                 action = "retrying" if attempt < _MAX_RETRIES else "giving up"

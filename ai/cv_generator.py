@@ -434,7 +434,7 @@ class CVGenerator:
 
     async def generate_cl_content(
         self, job: JobListing, application_notes: str = "", feedback: str = "",
-        jd_keywords: list | None = None,
+        jd_keywords: list | None = None, cv_content: dict | None = None,
     ) -> Dict:
         prompt = get_prompt("cl_prompt").format(
             title=job.title,
@@ -443,6 +443,19 @@ class CVGenerator:
             description=job.description[:4000] if job.description else "Not provided.",
             notes=application_notes or "None",
         )
+        if cv_content:
+            bullets_chintamani = "\n".join(f"  - {b}" for b in cv_content.get("chintamani", []))
+            bullets_accenture  = "\n".join(f"  - {b}" for b in cv_content.get("accenture",  []))
+            cv_block = (
+                f"\n\n{'='*50}\n"
+                "CV BULLETS ALREADY WRITTEN — your cover letter must reference and expand on these.\n"
+                "Do not copy them verbatim. Use the same achievements, angles, and metrics to tell\n"
+                "a consistent story — the CL deepens what the CV states.\n\n"
+                f"Chintamani Thermal Technologies:\n{bullets_chintamani}\n\n"
+                f"Accenture Solutions:\n{bullets_accenture}\n"
+                f"{'='*50}\n"
+            )
+            prompt = cv_block + "\n" + prompt
         if jd_keywords:
             kw_block = (
                 f"\n\n{'='*50}\n"

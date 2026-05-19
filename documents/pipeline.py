@@ -90,6 +90,53 @@ def _build_expense_report(job, tracker) -> str:
         return ""
 
 
+# ── Word count validator (2-page guard) ───────────────────────
+
+_CV_WORD_LIMITS = {
+    "summary":     65,
+    "competencies": 65,
+}
+_BULLET_DESC_WORD_LIMIT = 30
+_PROJECT_DESC_WORD_LIMIT = 20
+
+
+def _check_cv_word_counts(cv_content: dict) -> List[str]:
+    """
+    Return a list of word-count violations that would push the CV past 2 pages.
+    Checks summary, competencies, each bullet description, and project descriptions.
+    """
+    violations: List[str] = []
+
+    for field, limit in _CV_WORD_LIMITS.items():
+        text = cv_content.get(field, "")
+        count = len(text.split())
+        if count > limit:
+            violations.append(
+                f"{field}: {count} words — EXCEEDS {limit}-word cap by {count - limit} word(s). "
+                f"Trim to fit 2 pages."
+            )
+
+    for role in ("chintamani", "accenture"):
+        for i, bullet in enumerate(cv_content.get(role, []), 1):
+            desc = bullet.split(": ", 1)[1] if ": " in bullet else bullet
+            count = len(desc.split())
+            if count > _BULLET_DESC_WORD_LIMIT:
+                violations.append(
+                    f"{role}[{i}] description: {count} words — EXCEEDS {_BULLET_DESC_WORD_LIMIT}-word cap by "
+                    f"{count - _BULLET_DESC_WORD_LIMIT} word(s). Cut words, keep the fact."
+                )
+
+    for field, limit in (("project1_desc", _PROJECT_DESC_WORD_LIMIT), ("project2_desc", _PROJECT_DESC_WORD_LIMIT)):
+        text = cv_content.get(field, "")
+        count = len(text.split())
+        if count > limit:
+            violations.append(
+                f"{field}: {count} words — EXCEEDS {limit}-word cap by {count - limit} word(s)."
+            )
+
+    return violations
+
+
 # ── Bullet label validator ─────────────────────────────────────
 
 def _check_bullet_labels(cv_content: dict) -> List[str]:
@@ -348,6 +395,24 @@ class DocumentPipeline:
                     logger.warning(
                         "CV bullet label check failed (%d bad) — retry %d/%d",
                         len(bad), attempt + 1, _MAX_RETRIES,
+                    )
+                    continue  # skip humanise/evaluate; go straight to next attempt
+
+            # Word count check — short-circuit if any section exceeds its 2-page cap
+            over_limit = _check_cv_word_counts(content)
+            if over_limit:
+                for v in over_limit:
+                    logger.warning("CV word-count violation (attempt %d): %s", attempt + 1, v)
+                if attempt < _MAX_RETRIES:
+                    count_msg = (
+                        f"2-PAGE OVERFLOW: {len(over_limit)} section(s) exceed their word limits.\n"
+                        + "\n".join(f"  • {v}" for v in over_limit)
+                        + "\nTrim each section to its cap — the CV must fit in 2 pages."
+                    )
+                    feedback = count_msg + ("\n\n" + feedback if feedback else "")
+                    logger.warning(
+                        "CV word-count check failed (%d violations) — retry %d/%d",
+                        len(over_limit), attempt + 1, _MAX_RETRIES,
                     )
                     continue  # skip humanise/evaluate; go straight to next attempt
 

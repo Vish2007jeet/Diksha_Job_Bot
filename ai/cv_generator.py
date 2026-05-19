@@ -92,7 +92,12 @@ def _build_cv_system() -> str:
         f"You are an expert professional recruiter and ATS optimisation specialist with 15+ years of experience"
         f" creating resumes for business analytics, finance, and operations roles."
         f" You are writing for {config.USER_FULL_NAME}.\n\n"
-        "PAGE LIMIT: Maximum 2 pages. Keep all content tight and within bounds.\n\n"
+        "PAGE LIMIT: Strict maximum 2 pages. Hard word limits per section — exceeding any limit will cause a page-3 overflow:\n"
+        "  • Summary: ≤ 65 words\n"
+        "  • Core Competencies: ≤ 65 words\n"
+        "  • Each bullet description (the part AFTER the label and colon): ≤ 30 words\n"
+        "  • Project descriptions: ≤ 20 words each (enforced separately)\n"
+        "Count your words before outputting. If any section exceeds its limit, cut words — do not summarise the limit away.\n\n"
         f"{config.CV_PROFILE_TEXT}\n\n"
         "━━━ BULLET FORMAT LAW — zero tolerance, no exceptions ━━━\n"
         "Every single bullet across both roles MUST follow this EXACT format:\n"
@@ -241,11 +246,12 @@ Generate a fully ATS-optimised, humanised resume tailored 100% to the job descri
 Act as a 15+ year experienced ATS CV writer. The output must be practical, relatable, and undetectable as AI-written.
 
 STRICT RULES — follow exactly, never do extra, never do less:
-1. Professional Summary: exactly ~60 words, keyword-rich, role-aligned to the JD.
-2. Core Competencies: exactly ~60 words, comma-separated, all terms directly relevant to the JD.
+1. Professional Summary: exactly ~60 words, keyword-rich, role-aligned to the JD. HARD CAP: ≤ 65 words. Count before outputting.
+2. Core Competencies: exactly ~60 words, comma-separated, all terms directly relevant to the JD. HARD CAP: ≤ 65 words. Count before outputting.
 3. Each role: exactly 4 bullets. FORMAT: "Two To Four Word Label: description sentence."
    — The label (before the colon) is MANDATORY on every bullet. Plain text only — no HTML, no asterisks, no markdown.
    — BEFORE writing each bullet, confirm it starts with a label followed by ': '.
+   — HARD CAP per bullet description (the text AFTER the label and colon): ≤ 30 words. Count words in the description part only.
 4. All 8 labels across both roles must be completely unique — zero repeats across chintamani and accenture.
 5. Distribute ATS keywords from the JD evenly — one keyword family per role max, no repetition across roles.
 6. Metrics: exactly 2–3 bullets per role must contain a specific quantified metric (number, %, time saving).
@@ -253,7 +259,7 @@ STRICT RULES — follow exactly, never do extra, never do less:
    Do NOT invent a number to fill a slot. A qualitative outcome is better than a fabricated metric.
 7. Both project descriptions: ONE sentence only, max 20 words each. Format: "To [verb] [what] using [tool] to [outcome]." Tailored to JD. No paragraph, no multiple sentences.
 8. Content must be practical, relatable, and not detectable as AI-written.
-9. Vary description length naturally — at least one short (≤12 words) and one detailed (25+ words) per role.
+9. Vary description length naturally — at least one short (≤12 words) and one detailed (20-30 words) per role.
    No two consecutive bullets start their description with the same word. No named pattern rotation.
 10. Cover: data analysis, business insight, operations, reporting, stakeholder impact — distributed naturally.
 11. Write the way a strong human writer would — let the content decide the structure, not a template.

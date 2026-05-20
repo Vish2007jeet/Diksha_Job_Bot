@@ -187,7 +187,7 @@ def _build_cv_system() -> str:
         "  Studium → Studies\n"
         "  Fachrichtung → Field of Study\n"
         "If unsure of the English translation, paraphrase in plain English. Never output German.\n\n"
-        "RESPONSE: Valid JSON only. No markdown. No code fences.\n"
+        "RESPONSE: Output the JSON object immediately — start with `{`. No preamble, no reasoning, no explanation. Valid JSON only. No markdown. No code fences.\n"
     )
 
 
@@ -402,7 +402,7 @@ class CVGenerator:
         response = await asyncio.to_thread(
             self.client.messages.create,
             model=config.CLAUDE_MODEL,
-            max_tokens=3500,
+            max_tokens=4500,
             system=[{"type": "text", "text": get_prompt("cv_system"), "cache_control": {"type": "ephemeral"}}],
             messages=[{"role": "user", "content": prompt}],
         )

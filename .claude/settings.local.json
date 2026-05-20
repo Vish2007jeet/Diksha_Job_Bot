@@ -34,7 +34,8 @@
       "Bash(powershell -Command \"Get-Content 'bot_err.log' -Tail 50\")",
       "Bash(powershell -Command \"Get-Content 'data\\\\logs\\\\jobbot.log' -Tail 100 -Encoding UTF8\")",
       "Bash(cd /d D:\\\\Diksha_Job_Bot)",
-      "Bash(python -c \"import ast; ast.parse\\(open\\('bot/handlers.py'\\).read\\(\\)\\); print\\('Syntax OK'\\)\")"
+      "Bash(python -c \"import ast; ast.parse\\(open\\('bot/handlers.py'\\).read\\(\\)\\); print\\('Syntax OK'\\)\")",
+      "Bash(python -c \"import json; d=json.load\\(open\\('D:/Diksha_Job_Bot/data/prompts.json','r',encoding='utf-8'\\)\\); print\\(d['cv_system'][:800]\\)\")"
     ]
   }
 }

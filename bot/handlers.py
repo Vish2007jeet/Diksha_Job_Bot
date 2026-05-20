@@ -21,6 +21,7 @@ from telegram.ext import (
 
 import config
 from bot.keyboards import (
+    ats_threshold_keyboard,
     cancel_keyboard,
     confirm_apply_keyboard,
     humanize_keyboard,
@@ -88,6 +89,7 @@ class BotHandlers:
             "/keywords — Show and manage search keywords\n"
             "/locations — Show and manage search locations\n"
             "/threshold — View or set the minimum relevance score (1–10)\n"
+            "/ats — View or set the CV ATS target score (0–100, default 80)\n"
             "/humanize — Toggle the Haiku rewriter on/off for CV + CL\n"
             "/status — Bot stats and config summary\n"
             "/scrapers — Per-scraper last-run, jobs found, error rate\n"
@@ -567,6 +569,26 @@ class BotHandlers:
             f"Only jobs scored ≥ this value get sent as cards.\n"
             f"Tap a preset or use ➖ / ➕ to adjust.",
             reply_markup=threshold_keyboard(config.MIN_RELEVANCE_SCORE),
+        )
+
+    # ── /ats ───────────────────────────────────────────────────
+
+    @staticmethod
+    def _ats_text(current: int) -> str:
+        return (
+            f"🎯 <b>CV ATS Target</b>\n\n"
+            f"Current: <b>{current}/100</b>\n\n"
+            f"After all retries the bot proceeds with the <b>best CV achieved</b>.\n"
+            f"This threshold controls how many retries fire and is shown in the quality report.\n\n"
+            f"Tap a preset or use ➖ / ➕ to adjust."
+        )
+
+    async def cmd_ats_threshold(self, update: Update, _ctx: ContextTypes.DEFAULT_TYPE) -> None:
+        if update.effective_chat.id != config.TELEGRAM_CHAT_ID:
+            return
+        await update.message.reply_html(
+            self._ats_text(config.ATS_SCORE_TARGET),
+            reply_markup=ats_threshold_keyboard(config.ATS_SCORE_TARGET),
         )
 
     async def cmd_stop(self, update: Update, _ctx: ContextTypes.DEFAULT_TYPE) -> None:
@@ -1123,6 +1145,11 @@ class BotHandlers:
                     f"Tap a preset or use ➖ / ➕ to adjust.",
                     reply_markup=threshold_keyboard(config.MIN_RELEVANCE_SCORE),
                 )
+            elif cmd == "ats":
+                await query.message.reply_html(
+                    self._ats_text(config.ATS_SCORE_TARGET),
+                    reply_markup=ats_threshold_keyboard(config.ATS_SCORE_TARGET),
+                )
             return
 
         # ── threshold inline buttons ───────────────────────────────
@@ -1148,6 +1175,32 @@ class BotHandlers:
                     f"Tap a preset or use ➖ / ➕ to adjust.",
                     parse_mode="HTML",
                     reply_markup=threshold_keyboard(new_val),
+                )
+            except Exception:
+                pass
+            return
+
+        # ── ATS threshold inline buttons ───────────────────────────
+        if data.startswith("ats:"):
+            from utils.bot_settings import bot_settings
+            action = data.split(":", 1)[1]
+            if action == "noop":
+                return
+            cur = config.ATS_SCORE_TARGET
+            if action == "inc":
+                new_val = min(cur + 5, 100)
+            elif action == "dec":
+                new_val = max(cur - 5, 0)
+            elif action.startswith("set:"):
+                new_val = int(action.split(":", 1)[1])
+            else:
+                return
+            bot_settings.set("ats_score_target", new_val)
+            try:
+                await query.edit_message_text(
+                    self._ats_text(config.ATS_SCORE_TARGET),
+                    parse_mode="HTML",
+                    reply_markup=ats_threshold_keyboard(config.ATS_SCORE_TARGET),
                 )
             except Exception:
                 pass
@@ -1952,6 +2005,7 @@ def build_handlers(handlers: BotHandlers):
         (CommandHandler("scan",         handlers.cmd_scan),         0),
         (CommandHandler("stop",         handlers.cmd_stop),         0),
         (CommandHandler("threshold",    handlers.cmd_threshold),    0),
+        (CommandHandler("ats",          handlers.cmd_ats_threshold),0),
         (CommandHandler("humanize",     handlers.cmd_humanize),     0),
         (CommandHandler("health",       handlers.cmd_health),       0),
         (CommandHandler("jobs",         handlers.cmd_jobs),         0),

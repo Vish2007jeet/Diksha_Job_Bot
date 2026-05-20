@@ -28,7 +28,6 @@ _name_slug = config.USER_NAME_SHORT.replace(" ", "_")
 CV_FILENAME = f"CV_{_name_slug}"
 CL_FILENAME = f"CL_{_name_slug}"
 
-_SCORE_TARGET       = 80    # minimum ATS score before retrying
 _MAX_RETRIES        = 2     # up to 2 retries = 3 total attempts per document
 _FEEDBACK_MAX_CHARS = 1500  # cap feedback injected into retry prompts to avoid context overflow
 
@@ -369,11 +368,11 @@ class DocumentPipeline:
         # CV runs first so the CL can reference its actual bullets
         cv_content, cv_eval = await self._cv_loop(job, jd, jd_keywords=jd_keywords)
 
-        # Skip CL entirely if CV never reached the minimum threshold — saves cost
-        if cv_eval.ats_score < _SCORE_TARGET:
-            raise ValueError(
-                f"CV ATS score {cv_eval.ats_score}/100 is below the minimum {_SCORE_TARGET} "
-                f"after all retries — cover letter not generated."
+        # If best CV is still below the target, warn and continue — never block on ATS alone.
+        if cv_eval.ats_score < config.ATS_SCORE_TARGET:
+            logger.warning(
+                f"CV ATS={cv_eval.ats_score} < {config.ATS_SCORE_TARGET} after all retries — "
+                f"proceeding with best result for {job.title} @ {job.company}"
             )
 
         cl_content, cl_eval = await self._cl_loop(
@@ -440,7 +439,7 @@ class DocumentPipeline:
     async def _cv_loop(self, job, jd: str, jd_keywords: list | None = None):
         """
         Generate → Humanize → Evaluate loop for the CV.
-        Retries up to _MAX_RETRIES times when ATS score < _SCORE_TARGET or banned words
+        Retries up to _MAX_RETRIES times when ATS score < config.ATS_SCORE_TARGET or banned words
         are found.  Bullet-label failures short-circuit to the next attempt before
         humanisation.  Always returns the best (highest ATS) result seen.
         """
@@ -507,12 +506,12 @@ class DocumentPipeline:
             if best_eval is None or ev.ats_score > best_eval.ats_score:
                 best_content, best_eval = content, ev
 
-            passes = ev.ats_score >= _SCORE_TARGET and not ev.banned_words_found
+            passes = ev.ats_score >= config.ATS_SCORE_TARGET and not ev.banned_words_found
             if passes or attempt == _MAX_RETRIES:
                 break
 
             logger.warning(
-                f"CV ATS={ev.ats_score} < {_SCORE_TARGET} "
+                f"CV ATS={ev.ats_score} < {config.ATS_SCORE_TARGET} "
                 f"(banned={ev.banned_words_found or 'none'}) — "
                 f"retry {attempt + 1}/{_MAX_RETRIES} for {job.title} @ {job.company}"
             )
@@ -528,7 +527,7 @@ class DocumentPipeline:
     async def _cl_loop(self, job, jd: str, application_notes: str, jd_keywords: list | None = None, cv_content: dict | None = None):
         """
         Generate → Humanize → Evaluate loop for the Cover Letter.
-        Mirrors _cv_loop: retries with evaluator feedback until score >= _SCORE_TARGET
+        Mirrors _cv_loop: retries with evaluator feedback until score >= config.ATS_SCORE_TARGET
         or retries are exhausted; always keeps the best result seen.
         cv_content is the already-generated CV so the CL can reference its bullets.
         """
@@ -561,12 +560,12 @@ class DocumentPipeline:
             if best_eval is None or ev.ats_score > best_eval.ats_score:
                 best_content, best_eval = content, ev
 
-            passes = ev.ats_score >= _SCORE_TARGET and not ev.banned_words_found
+            passes = ev.ats_score >= config.ATS_SCORE_TARGET and not ev.banned_words_found
             if passes or attempt == _MAX_RETRIES:
                 break
 
             logger.warning(
-                f"CL ATS={ev.ats_score} < {_SCORE_TARGET} "
+                f"CL ATS={ev.ats_score} < {config.ATS_SCORE_TARGET} "
                 f"(banned={ev.banned_words_found or 'none'}) — "
                 f"retry {attempt + 1}/{_MAX_RETRIES} for {job.title} @ {job.company}"
             )

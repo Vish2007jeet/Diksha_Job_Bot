@@ -21,6 +21,7 @@ _SETTINGS_FILE = Path(__file__).parent.parent / "data" / "bot_settings.json"
 
 _DEFAULTS: dict[str, Any] = {
     "humanize_enabled": True,
+    "ats_score_target": 80,
 }
 
 

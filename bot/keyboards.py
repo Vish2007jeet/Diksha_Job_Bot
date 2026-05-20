@@ -44,6 +44,7 @@ def main_menu_keyboard() -> InlineKeyboardMarkup:
             InlineKeyboardButton("💰 Expenses",        callback_data="cmd:expense"),
         ],
         [
+            InlineKeyboardButton("🎯 ATS Threshold",    callback_data="cmd:ats"),
             InlineKeyboardButton("ℹ️ Help",             callback_data="cmd:help"),
         ],
     ])
@@ -96,6 +97,24 @@ def threshold_keyboard(current: float) -> InlineKeyboardMarkup:
         InlineKeyboardButton("➖ 0.5", callback_data="threshold:dec"),
         InlineKeyboardButton(f"Now: {current:g}", callback_data="threshold:noop"),
         InlineKeyboardButton("➕ 0.5", callback_data="threshold:inc"),
+    ]
+    return InlineKeyboardMarkup([preset_row, nudge_row])
+
+
+def ats_threshold_keyboard(current: int) -> InlineKeyboardMarkup:
+    """Interactive keyboard for /ats — presets + ±5 nudge for CV ATS target (0–100)."""
+    presets = [65, 70, 75, 80, 85]
+    preset_row = [
+        InlineKeyboardButton(
+            f"{'→' if v == current else ''}{v}",
+            callback_data=f"ats:set:{v}",
+        )
+        for v in presets
+    ]
+    nudge_row = [
+        InlineKeyboardButton("➖ 5", callback_data="ats:dec"),
+        InlineKeyboardButton(f"Now: {current}", callback_data="ats:noop"),
+        InlineKeyboardButton("➕ 5", callback_data="ats:inc"),
     ]
     return InlineKeyboardMarkup([preset_row, nudge_row])
 

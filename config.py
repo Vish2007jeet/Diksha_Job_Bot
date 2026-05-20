@@ -188,6 +188,7 @@ def _load_bot_setting(key: str, default):
     return default
 
 HUMANIZE_ENABLED: bool = bool(_load_bot_setting("humanize_enabled", True))
+ATS_SCORE_TARGET: int  = int(_load_bot_setting("ats_score_target", 80))
 
 # ── Google Sheets ─────────────────────────────────────────────
 _google = _cfg.get("google", {})

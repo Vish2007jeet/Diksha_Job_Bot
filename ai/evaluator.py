@@ -260,10 +260,19 @@ class DocumentEvaluator:
             messages=[{"role": "user", "content": prompt}],
         )
         self._log_cost(job_id, call_type, response)
-        return json.loads(self._clean_json(response.content[0].text))
+        raw = self._clean_json(response.content[0].text)
+        try:
+            return json.loads(raw)
+        except json.JSONDecodeError:
+            logger.warning(f"[{call_type}] non-JSON response from Claude — returning default. Raw: {raw[:200]}")
+            return {"ats_score": 100, "missing_keywords": []}
 
     async def evaluate_cv(self, job_id: str, jd: str, cv_data: dict) -> EvalResult:
         cv_text = cv_dict_to_text(cv_data)
+        if not jd or not jd.strip():
+            logger.warning(f"[CV CHECK] Empty JD for {job_id} — skipping ATS call, returning default pass")
+            banned = check_banned_words(cv_text)
+            return EvalResult(ats_score=100, missing_keywords=[], banned_words_found=banned)
         prompt  = _CV_ATS_PROMPT.format(jd=jd[:5000], cv_text=cv_text)
         data    = await self._ats_call(prompt, job_id, "cv_ats")
         banned  = check_banned_words(cv_text)
@@ -279,6 +288,10 @@ class DocumentEvaluator:
 
     async def evaluate_cl(self, job_id: str, jd: str, cl_data: dict) -> EvalResult:
         cl_text = cl_dict_to_text(cl_data)
+        if not jd or not jd.strip():
+            logger.warning(f"[CL CHECK] Empty JD for {job_id} — skipping ATS call, returning default pass")
+            banned = check_banned_words(cl_text)
+            return EvalResult(ats_score=100, missing_keywords=[], banned_words_found=banned)
         prompt  = _CL_ATS_PROMPT.format(jd=jd[:4000], cl_text=cl_text)
         data    = await self._ats_call(prompt, job_id, "cl_ats")
         banned  = check_banned_words(cl_text)

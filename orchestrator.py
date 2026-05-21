@@ -353,6 +353,33 @@ class JobOrchestrator:
                     )
                 return
 
+            # ── Werkstudent-only gate ────────────────────────────
+            # Hard filter: only keep jobs with "werkstudent" or "working student"
+            # in the title. Internships and full-time roles are silently dropped.
+            _WS_TERMS = ("werkstudent", "working student")
+            ws_kept, ws_dropped = [], []
+            for j in new_jobs:
+                title_lc = j.title.lower()
+                if any(t in title_lc for t in _WS_TERMS):
+                    ws_kept.append(j)
+                else:
+                    j.relevance_score = 0.0
+                    j.status = JobStatus.NEW
+                    self.tracker.save_job(j)
+                    ws_dropped.append(j)
+            if ws_dropped:
+                logger.info(f"Werkstudent gate: dropped {len(ws_dropped)} non-WS jobs")
+            new_jobs = ws_kept
+
+            if not new_jobs:
+                if bot:
+                    await bot.send_message(
+                        chat_id=config.TELEGRAM_CHAT_ID,
+                        text=scan_complete(total_found, 0, 0, source_counts=source_counts),
+                        parse_mode="HTML",
+                    )
+                return
+
             if self._stop_event.is_set():
                 await self._send_stopped(bot)
                 return

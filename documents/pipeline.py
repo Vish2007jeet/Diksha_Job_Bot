@@ -49,6 +49,60 @@ _CALL_LABEL = {
 }
 
 
+async def _refetch_description(url: str) -> str:
+    """
+    Attempt a simple HTTP GET to re-fetch a job description when the DB row has none.
+    Tries JSON-LD JobPosting first, then falls back to common description CSS selectors.
+    Returns plain text or '' on failure.
+    """
+    import json as _json
+    import requests
+    from bs4 import BeautifulSoup
+    from utils.helpers import clean_text
+
+    headers = {
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/122.0.0.0 Safari/537.36"
+        ),
+        "Accept-Language": "de-DE,de;q=0.9,en-US;q=0.8",
+    }
+
+    def _fetch() -> str:
+        resp = requests.get(url, headers=headers, timeout=15)
+        resp.raise_for_status()
+        soup = BeautifulSoup(resp.text, "lxml")
+
+        # 1. JSON-LD JobPosting (Xing, Workday, many ATS platforms)
+        for script in soup.find_all("script", type="application/ld+json"):
+            try:
+                data = _json.loads(script.string or "")
+                if isinstance(data, dict) and data.get("@type") == "JobPosting":
+                    raw = data.get("description", "")
+                    if raw:
+                        return clean_text(BeautifulSoup(raw, "lxml").get_text())
+            except Exception:
+                continue
+
+        # 2. Common description selectors
+        for selector in (
+            "[data-testid='job-description']",
+            ".job-description",
+            "[class*='jobDescription']",
+            "[class*='job-description']",
+            "[class*='JobDescription']",
+            "#job-description",
+        ):
+            el = soup.select_one(selector)
+            if el:
+                return clean_text(el.get_text())
+
+        return ""
+
+    return await asyncio.to_thread(_fetch)
+
+
 def _build_expense_report(job, tracker) -> str:
     """Build a Telegram HTML expense report for one application."""
     if not tracker:
@@ -361,6 +415,23 @@ class DocumentPipeline:
         logger.info(f"Generating docs for: {job.title} @ {job.company}")
 
         jd = job.description or ""
+
+        # If description is missing from DB, re-fetch it now before generation.
+        # Xing (and others) store no description at scrape time; detail fetch can
+        # also fail silently, leaving the DB row with description = NULL.
+        if not jd.strip() and job.url:
+            logger.warning(f"Empty JD for {job.job_id} — attempting live re-fetch from {job.url}")
+            try:
+                jd = await _refetch_description(job.url)
+                if jd:
+                    job.description = jd
+                    if self._tracker:
+                        self._tracker.update_description(job.job_id, jd)
+                    logger.info(f"Re-fetch succeeded: {len(jd)} chars for {job.job_id}")
+                else:
+                    logger.warning(f"Re-fetch returned empty body for {job.job_id} — proceeding without JD")
+            except Exception as exc:
+                logger.warning(f"Re-fetch failed for {job.job_id}: {exc} — proceeding without JD")
 
         # Stage 1: Extract ATS keywords from JD (Haiku, ~$0.0005) — runs before generation
         jd_keywords = await _extract_jd_keywords(jd, tracker=self._tracker, job_id=job.job_id)

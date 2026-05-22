@@ -750,6 +750,14 @@ class JobTracker:
             ).fetchone()
         return dict(row) if row else None
 
+    def update_description(self, job_id: str, description: str) -> None:
+        with sqlite3.connect(DB_PATH) as conn:
+            conn.execute(
+                "UPDATE jobs SET description = ? WHERE job_id = ?",
+                (description, job_id),
+            )
+            conn.commit()
+
     def get_all_jobs(self, status: Optional[JobStatus] = None) -> List[dict]:
         with sqlite3.connect(DB_PATH) as conn:
             conn.row_factory = sqlite3.Row

@@ -233,6 +233,39 @@ _PLACEHOLDER_RE = re.compile(
 )
 
 
+_DANGLING_END_RE = re.compile(r"\b(the|a|an|and|of|to|for|with|in|on|at|by)\s*$", re.IGNORECASE)
+_BANNED_OPENERS_RE = re.compile(
+    r"^\s*(.{0,30}sits\s+at\s+the\s+(exact\s+)?intersection|"
+    r"few\s+companies\s+operate|"
+    r"i\s+am\s+(writing|excited|thrilled)|"
+    r"\w+\s+is\s+(a\s+leader|at\s+the\s+forefront))",
+    re.IGNORECASE,
+)
+
+
+def _check_paragraph_endings(cl_data: dict) -> List[str]:
+    """
+    Catch paragraphs that end mid-sentence with a dangling article ('The ', 'A ', 'and ').
+    These are nearly always template-engine or generation truncations and look unprofessional.
+    """
+    bad: List[str] = []
+    for k in ("para1", "para2", "para3", "para4", "para5"):
+        text = (cl_data.get(k) or "").rstrip().rstrip(".")
+        if _DANGLING_END_RE.search(text):
+            bad.append(f"{k} ends with a dangling article: ...{text[-40:]!r}")
+    return bad
+
+
+def _check_para1_opening(cl_data: dict) -> str:
+    """Return a warning string if para1 starts with a banned formulaic opener — else ''."""
+    para1 = (cl_data.get("para1") or "").strip()
+    if not para1:
+        return ""
+    if _BANNED_OPENERS_RE.match(para1):
+        return f"para1 opens with a banned formulaic pattern: {para1[:80]!r}"
+    return ""
+
+
 def check_cl_quality(cl_text: str, company: str) -> List[str]:
     """Scan a generated cover letter for red flags. Returns warning strings (empty = OK)."""
     warnings: List[str] = []
@@ -626,6 +659,29 @@ class DocumentPipeline:
                 content = await self._humanizer.humanize_cl(job.job_id, content)
             else:
                 logger.info("CL humanizer skipped (disabled via /humanize)")
+
+            # Structural checks BEFORE evaluator — catches truncations + banned openers.
+            structural_issues: List[str] = []
+            dangling = _check_paragraph_endings(content)
+            if dangling:
+                structural_issues.extend(dangling)
+            opener_warn = _check_para1_opening(content)
+            if opener_warn:
+                structural_issues.append(opener_warn)
+            if structural_issues and attempt < _MAX_RETRIES:
+                for issue in structural_issues:
+                    logger.warning(f"CL structural issue (attempt {attempt + 1}): {issue}")
+                feedback = (
+                    "STRUCTURAL ERRORS — fix every one before outputting:\n"
+                    + "\n".join(f"  • {i}" for i in structural_issues)
+                    + "\n\nReminders:\n"
+                    "  - Every paragraph MUST end with a complete sentence (period). No dangling 'The ', 'A ', 'and '.\n"
+                    "  - Para 1 MUST open with a concrete moment from YOUR work — banned: 'X sits at the intersection',\n"
+                    "    'Few companies operate at the scale', 'I am writing/excited/thrilled', 'X is a leader in'.\n"
+                )
+                feedback = feedback[:_FEEDBACK_MAX_CHARS]
+                continue  # skip evaluation; regenerate with explicit fix-it feedback
+
             ev = await self._evaluator.evaluate_cl(job.job_id, jd, content)
 
             if best_eval is None or ev.ats_score > best_eval.ats_score:

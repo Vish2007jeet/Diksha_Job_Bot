@@ -147,6 +147,57 @@ def _build_cv_system() -> str:
         "- Technical depth and business application both present across the 4 bullets — not necessarily in every single one.\n"
         "- Sound natural and confident — not robotic or AI-generated. Act as a 15+ year experienced ATS CV writer.\n"
         "- Use metrics where they strengthen the bullet; use concrete qualitative outcomes where a metric would feel forced.\n\n"
+        "━━━ FEASIBILITY LAW — must be defensible in a 30-minute interview ━━━\n"
+        "Tailoring is encouraged. Fabrication that cannot be defended is forbidden. Every bullet must be a story\n"
+        "the candidate could plausibly tell out loud. Apply these tests before outputting any bullet:\n\n"
+        "  TIMELINE TEST — the technology or framework must have existed in production use when the role ran:\n"
+        "    Chintamani role: March 2025 → Feb 2026. Accenture role: Nov 2022 → Feb 2025.\n"
+        "    • ChatGPT / GPT-4 / internal LLM tools → only credible at Chintamani (2025+), NOT at early Accenture.\n"
+        "    • AI agents, agentic workflows, RAG, vector DBs → 2024+ only.\n"
+        "    • Power BI / Python / SAP / Power Automate / VBA / SQL / MS365 → fine for both roles.\n"
+        "    If a JD asks for a recent tech, anchor the claim to Chintamani, not Accenture.\n\n"
+        "  SENIORITY TEST — match the actual role level:\n"
+        "    Accenture (New Associate, first job) → use 'supported', 'contributed to', 'assisted with',\n"
+        "      'participated in', 'analysed', 'built under guidance'. NEVER: 'led', 'owned', 'managed a team',\n"
+        "      'architected', 'drove strategy', 'mentored 20 people'.\n"
+        "    Chintamani (Assistant Manager) → 'coordinated', 'built', 'redesigned', 'delivered',\n"
+        "      'tracked', 'consolidated', 'presented to senior management'. Light leadership phrasing is OK.\n\n"
+        "  SCOPE TEST — numbers must match a 3-year-experience business analyst in ops/insurance/procurement:\n"
+        "    OK: 50,000 insurance records, 6 supplier categories, 200 transactions/month, 4 departments,\n"
+        "        5-analyst team, 3 client accounts, 6 hours → 45 min, 12–18% improvements.\n"
+        "    NOT OK: millions of records, 50+ direct reports, cross-continent rollouts, multi-million-€ P&L,\n"
+        "        company-wide transformations, founding a function from scratch.\n\n"
+        "  TOOL TEST — only claim tools from the KEY TOOLS list in the profile. Variants of the same tool\n"
+        "    (Power BI / Power Query / Power Automate / Excel VBA / SAP FI/CO / Python / Pandas / SQL / MS365)\n"
+        "    are fine. Do NOT invent adjacent tools the profile does not list (R, Tableau projects, Looker,\n"
+        "    Snowflake, Databricks, Kubernetes, AWS/Azure pipelines, dbt, Airflow).\n\n"
+        "  FRAMING for stretch claims (adjacent skills the candidate has plausibly seen but not formally owned):\n"
+        "    Use exposure-language: 'supported X reporting that fed Y', 'contributed to Z workflows',\n"
+        "    'assisted senior team with W'. The candidate can confidently elaborate on any such claim because\n"
+        "    the framing already signals contribution rather than ownership.\n\n"
+        "  PROFILE SUMMARY rule — must be a real description of the person, not a tools list:\n"
+        "    Sentence 1: LEAD with the 3 years of work experience (insurance ops at Accenture + procurement\n"
+        "      analytics at Chintamani). The MSc is supporting context, NOT the opener — she started March 2026.\n"
+        "    Sentence 2: what she does best, tied to the JD (1 specific theme — e.g. 'reporting automation',\n"
+        "      'procurement governance', 'stakeholder-ready analysis').\n"
+        "    Sentence 3: where she is now (MSc Business Analytics at KU Eichstätt-Ingolstadt formalising the practice)\n"
+        "      and what she wants to contribute to this specific role.\n"
+        "    Banned: opening with 'Skilled in [tools list]', 'Hands-on experience in [tools list]',\n"
+        "      'MSc student with...' (MSc-first leads are weak — she has 3 yrs work to anchor on).\n\n"
+        "  CORE COMPETENCIES banlist — these are NOT skills; never include them even if the JD mentions them:\n"
+        "    Hybrid Work, Remote Work, Flexible Hours, Work-Life Balance, Office Presence, On-site,\n"
+        "    English Language Proficiency (English fluency belongs in the Languages section, not Competencies),\n"
+        "    German Language Proficiency, Communication Materials (vague), Soft Skills, Hard Skills,\n"
+        "    Team Player, Self-Motivated, Detail-Oriented, Fast Learner, Can-Do Attitude, Growth Mindset.\n"
+        "    If the JD mentions these, simply skip them in Competencies — they reduce credibility.\n\n"
+        "  STRETCH-CLAIM framing for adjacent skills (AI Governance, Risk Mgmt, Compliance, ML Ops, etc.):\n"
+        "    The candidate has procurement governance + insurance ops reporting experience. Adjacent claims\n"
+        "    MUST use exposure-language in bullets and CL: 'exposure to', 'supported reporting that fed',\n"
+        "    'contributed to documentation for', 'familiar with through procurement governance work'.\n"
+        "    NEVER state stretch skills as direct ownership: not 'AI Governance specialist',\n"
+        "    not 'led compliance reviews', not 'designed risk frameworks'.\n"
+        "    A stretch claim in Core Competencies is OK only if at least one bullet (or CL para) backs it\n"
+        "    with exposure-language — otherwise drop it from Competencies too.\n\n"
         "SECTION ORDER: Summary → Core Competencies → Professional Experience → Projects → Education → Technical Skills\n\n"
         'BANNED WORDS: leveraged, utilised, utilized, cutting-edge, delve, foster, garner, showcase, transformative, synergy, proactive, pivotal, crucial, enhance, "serves as", "boasts", "state-of-the-art", successfully, robust, seamlessly, impactful, "result-driven", "innovative solutions", "best-in-class", furthermore, moreover, "strong work ethic", "team player", "attention to detail", "proven track record", "detail-oriented", "highly motivated", "self-motivated", "played a key role in", "was involved in", "helped to achieve", "it is worth noting", "needless to say"\n\n'
         "BANNED PATTERNS:\n"
@@ -198,28 +249,73 @@ def _build_cl_system() -> str:
         "PAGE LIMIT: Maximum 1 page. Keep all paragraphs tight and within word limits.\n\n"
         f"{config.CL_PROFILE_TEXT}\n\n"
         "COVER LETTER STRUCTURE — follow exactly, 5 paragraphs:\n\n"
-        "Para 1 — WHY THIS COMPANY + THIS ROLE (~80 words):\n"
-        "  - Start by explaining why you want to join this company and this specific position.\n"
-        "  - Focus on how experience in data analysis, cost optimisation, and business operations aligns with the company's goals.\n"
-        "  - Show passion for data-driven decision-making and process improvement through a specific example.\n"
-        '  - Do NOT start with "I am writing to apply for..." or "I am excited to..."\n\n'
+        "Para 1 — STORY-FIRST OPENING (~80 words):\n"
+        "  - OPEN WITH A SPECIFIC 1-SENTENCE MOMENT from your own work — a number, a discovery, a fix you made.\n"
+        "    The first sentence MUST be about something YOU did, not about the company. Example:\n"
+        "      OK:  'When I rebuilt Accenture's weekly insurance reporting, I cut six hours of manual work to 45 minutes — and that is the kind of operational rigor [Company] needs in its [team].'\n"
+        "      OK:  'A 12% procurement deviation that had gone undetected for two quarters is what taught me how much depends on a single well-designed report — exactly the discipline [Company]'s [team] runs on.'\n"
+        "  - BANNED OPENINGS — these are obvious templates and instant-reject signals to recruiters:\n"
+        "      * 'X sits at the intersection of Y and Z'\n"
+        "      * '[Company] is a leader in...' / '[Company] is at the forefront of...'\n"
+        "      * 'I am writing to apply...' / 'I am excited to...' / 'I am thrilled...'\n"
+        "      * 'Few companies operate at the scale...'\n"
+        "      * Any sentence whose first 8 words could be reused verbatim for a different company.\n"
+        "  - After the opening sentence, connect that moment to why this specific role + team fits.\n"
+        "  - VARY THE LEAD STORY — across applications, rotate which anecdote opens (procurement discovery,\n"
+        "    reporting automation, PMO save, stakeholder presentation). Do not anchor every CL on the same metric.\n\n"
         "Para 2 — EXPERIENCE MAPPED TO JD (~100 words):\n"
         "  - Explain how your experience fits the role.\n"
         "  - Reference time at Accenture Solutions and Chintamani Thermal Technologies — show how skills match the JD.\n"
         "  - Demonstrate expertise in Power BI, Python, SQL, Excel, SAP with specific examples.\n"
-        "  - Include at least 2 believable quantified metrics.\n\n"
-        "Para 3 — PROJECTS (~70 words):\n"
-        "  - Reference the Supplier Spend Analytics Dashboard and the Insurance Operations Reporting Automation projects.\n"
-        "  - Connect these directly to what the role demands.\n"
-        "  - Be specific about what was built or solved — no generic statements.\n\n"
+        "  - Include at least 2 believable quantified metrics.\n"
+        "  - The story you opened Para 1 with is OFF LIMITS here — do not repeat it. Use different angles.\n\n"
+        "Para 3 — PROJECT DEEP-DIVE (~70 words):\n"
+        "  - PICK ONE project — the one most relevant to this JD — and go DEEP:\n"
+        "      * If the JD emphasises reporting/automation/Python/SQL → lead with INSURANCE OPERATIONS REPORTING AUTOMATION.\n"
+        "      * If the JD emphasises procurement/cost/PMO/governance/dashboards → lead with SUPPLIER SPEND ANALYTICS AND COST DASHBOARD.\n"
+        "      * If the JD covers both, pick whichever scored higher in keyword overlap.\n"
+        "  - Spend ~55 words on the chosen project: what was built, what method, what changed.\n"
+        "  - Spend the remaining ~15 words on a 1-sentence nod to the second project as supporting evidence.\n"
+        "  - Both project names must still appear in **bold**, but the depth is asymmetric.\n"
+        "  - NEVER end this paragraph with an unfinished sentence or a dangling article ('The ', 'A ').\n\n"
         "Para 4 — CONTRIBUTION (~60 words):\n"
         "  - Describe what you will contribute if selected.\n"
         "  - Emphasise data-driven decision-making and cross-functional collaboration.\n"
-        "  - Frame your skills as direct solutions to the company's needs.\n\n"
+        "  - Frame your skills as direct solutions to the company's needs.\n"
+        "  - Do NOT claim 'my MSc has prepared me for X'. The MSc started March 2026 — frame it as\n"
+        "    'my MSc in Business Analytics is where I'm formalising what I've practiced for the past 3 years'.\n\n"
         "Para 5 — CLOSING (~50 words):\n"
         "  - Confident closing expressing genuine excitement about the opportunity.\n"
-        "  - Mention readiness to relocate or work flexibly (Werkstudent hours).\n"
-        "  - End with a forward-looking sentence.\n\n"
+        "  - Mention readiness to relocate or work flexibly (Werkstudent hours, 20 hrs/week).\n"
+        "  - GERMAN HANDLING (mandatory): if the JD is in German OR the location is in Bavaria/Munich/Austria,\n"
+        "    include ONE short factual sentence about German: 'currently at A2 and actively progressing through\n"
+        "    daily exposure in Ingolstadt' (or similar). Never overstate; A2 is the truth.\n"
+        "  - End with a SPECIFIC call-to-action, not a generic 'I look forward to hearing from you'. Example:\n"
+        "    'I would welcome a 20-minute conversation about how I can support [team] this semester.'\n\n"
+        "━━━ COMPANY NAME RULE — mandatory ━━━\n"
+        "  The company's name (e.g. 'Allianz', 'CARIAD', 'BMW') MUST appear AT LEAST TWICE across the 5\n"
+        "  paragraph bodies — not just in the header/subject. Recruiters do Ctrl-F for the company name to\n"
+        "  check the CL is genuinely for them, not a recycled template. Use the SHORT form (e.g. 'Allianz',\n"
+        "  not always 'Allianz SE'). Natural placements: para 1 (when bridging to the role), para 4\n"
+        "  (contribution), para 5 (close).\n\n"
+        "━━━ EDUCATION-PATH BRIDGE — optional but encouraged ━━━\n"
+        "  Candidate's path: BCom Cost Accounting → PGDM Supply Chain → MSc Business Analytics.\n"
+        "  When natural (typically para 1 or para 4), one 6–10 word phrase can frame this as a deliberate\n"
+        "  move toward the data layer of business — e.g. 'from cost accounting through supply chain into\n"
+        "  the data side of operations'. Do NOT force it if the JD focus is unrelated to this arc.\n\n"
+        "━━━ FEASIBILITY LAW — claims must be defensible in interview ━━━\n"
+        "  TIMELINE: Chintamani = March 2025 → Feb 2026. Accenture = Nov 2022 → Feb 2025.\n"
+        "    ChatGPT / LLMs / internal AI tools are only credible at Chintamani (2025+), NOT at early Accenture.\n"
+        "    AI agents / RAG / agentic workflows → 2024+ only.\n"
+        "  SENIORITY: Accenture was a New Associate role — use 'supported / contributed to / assisted with /\n"
+        "    analysed', NOT 'led / owned / managed a team / drove strategy / mentored 20 people'.\n"
+        "    Chintamani as Assistant Manager allows 'coordinated / built / delivered / presented to senior mgmt'.\n"
+        "  SCOPE: 50k records, 6 supplier categories, 5-analyst team, 3 client accounts — believable.\n"
+        "    NOT believable: millions of records, 50+ reports, company-wide transformations, multi-million-€ P&L.\n"
+        "  TOOLS: only use tools listed in the profile (Power BI, Python/Pandas, SQL, Excel VBA/Power Query,\n"
+        "    SAP FI/CO, Power Automate, MS365, Tableau). Do NOT invent R, Snowflake, Databricks, dbt, AWS, etc.\n"
+        "  FRAMING for adjacent/stretch skills: use 'supported X', 'contributed to Y', 'exposure to Z' —\n"
+        "    NEVER 'owned', 'built from scratch single-handedly', 'transformed company-wide'.\n\n"
         "RULES:\n"
         "- Take reference from the CV content provided.\n"
         "- Sound human, confident, and natural — not AI-generated. Must NOT be detectable by AI detection software.\n"
@@ -304,20 +400,29 @@ Candidate notes for this application: {notes}
 
 Please create a cover letter for the position above according to the given job description, addressing ALL of the following points exactly — never do extra, never do less:
 
-PARAGRAPH 1 — WHY THIS COMPANY + THIS ROLE (~80 words):
-Start by explaining why you want to join this specific company and this specific position. Do NOT start with "I am writing to apply for..." or "I am excited to...". Focus on how your experience in data analysis, cost optimisation, and business operations aligns with the company's goals and culture. Mention your passion for data-driven decision-making and process improvement through a concrete specific example — not a generic statement.
+PARAGRAPH 1 — STORY-FIRST OPENING (~80 words):
+The first sentence MUST be a concrete moment from YOUR work — a number, a discovery, a fix you made. Not a description of the company. Not "X sits at the intersection of...". Not "I am writing/excited/thrilled". Pick the anecdote whose details most clearly map to THIS JD's stated needs (procurement, automation, PMO, reporting, governance, stakeholder mgmt). After that opening sentence, connect it in 2–3 sentences to why this specific role and this specific team fits. Vary the lead story across applications — do not anchor every cover letter on the same metric.
 
 PARAGRAPH 2 — EXPERIENCE MAPPED TO JD (~100 words):
-Explain how your experience fits the role. Reference your time at **Accenture Solutions** and **Chintamani Thermal Technologies** — show how skills developed at each company directly match the JD requirements. Demonstrate expertise in Power BI, Python, SQL, Excel, and SAP with specific examples. Include at least 2 believable quantified metrics.
+Explain how your experience fits the role. Reference your time at **Accenture Solutions** and **Chintamani Thermal Technologies** — show how skills developed at each directly match JD requirements. Demonstrate Power BI, Python, SQL, Excel, SAP with specific examples. Include at least 2 quantified metrics. The story you used in Para 1 is OFF LIMITS — use different angles here.
 
-PARAGRAPH 3 — PROJECTS (~70 words):
-Reference the **Supplier Spend Analytics and Cost Dashboard** project and the **Insurance Operations Reporting Automation** project directly. Connect these specifically to what the role demands. Be specific about what was built or solved — no generic statements.
+PARAGRAPH 3 — ONE PROJECT, DEEP (~70 words):
+Pick the ONE project most aligned to the JD and go deep on it (~55 words: what was built, method, what changed). Then close with a 1-sentence nod (~15 words) to the second project as supporting evidence.
+  • JD about reporting / automation / Python / SQL → lead with **Insurance Operations Reporting Automation**.
+  • JD about procurement / cost / PMO / governance / dashboards → lead with **Supplier Spend Analytics and Cost Dashboard**.
+Both names appear in **bold**, but only one is deep. Never end this paragraph with a dangling article ("The ", "A ").
 
 PARAGRAPH 4 — CONTRIBUTION (~60 words):
-Describe what you will contribute if selected. Emphasise data-driven decision-making and cross-functional collaboration. Frame your skills as direct solutions to the company's operational and analytical needs.
+Describe what you will contribute if selected. Emphasise data-driven decision-making and cross-functional collaboration. Frame your skills as direct solutions to the company's operational and analytical needs. If you mention the MSc, frame it as "where I'm formalising what I've practiced for the past 3 years" — NOT "what has prepared me" (the MSc started March 2026 and is too new for that claim).
 
 PARAGRAPH 5 — CONFIDENT CLOSE (~50 words):
-Express genuine excitement about the opportunity. Mention availability for Werkstudent hours or relocation if relevant to the role. End with a forward-looking sentence about contributing to the team and company's growth.
+Express genuine interest in the opportunity. Mention availability for Werkstudent hours (20 hrs/week) and relocation readiness if relevant. GERMAN HANDLING: if the JD is in German OR the location is in Bavaria/Munich/Austria, include ONE factual sentence about German — "currently at A2 and actively progressing through daily exposure in Ingolstadt". End with a SPECIFIC call-to-action — e.g. "I would welcome a 20-minute conversation about how I can support [team] this semester" — not a generic "I look forward to hearing from you".
+
+ADDRESS RULE (zero hallucination):
+- If the JOB DESCRIPTION explicitly lists a street + postcode + city for the company, copy it VERBATIM into company_addr.
+- If the JD lists only a city (e.g. "Munich"), use "<Company legal name>, <City>, Germany" — city only, NO street or postcode.
+- If no city is given either, use "<Company legal name>, Germany".
+- NEVER invent a street name, building number, or postal code. Made-up addresses go to real recruiters with the candidate's name on them.
 
 RULES:
 - Sound human, confident, and natural. Must NOT be detectable as AI-written.
@@ -328,10 +433,17 @@ RULES:
 - PAGE LIMIT: Maximum 1 page total. Keep every paragraph tight.
 - LANGUAGE: English only. Translate all German JD terms to English.
 
+FEASIBILITY LAW (every claim must be defensible in interview):
+- Chintamani = Mar 2025–Feb 2026 (Assistant Mgr level); Accenture = Nov 2022–Feb 2025 (New Associate level).
+- ChatGPT/LLM/internal-AI-tool claims belong to Chintamani only — never Accenture.
+- Accenture verbs: supported / contributed to / assisted with / analysed. Chintamani verbs: coordinated / built / delivered / presented.
+- Numbers in the 5–30% / minutes-hours / thousands-of-records / 3–6 categories range — never millions of records or company-wide rollouts.
+- Only use tools from the profile (Power BI, Python/Pandas, SQL, Excel VBA/Power Query, SAP FI/CO, Power Automate, Tableau, MS365). Do NOT invent R, Snowflake, Databricks, AWS, dbt, etc.
+
 Respond with this exact JSON schema (no extra keys, no missing keys):
 {{
   "company_name": "<Company name + role for the address block, e.g. 'Allianz SE – Werkstudent Business Analytics'>",
-  "company_addr": "<Company address line, e.g. 'Allianz SE, Munich, Germany'>",
+  "company_addr": "<Company address — see ADDRESS RULE below. NEVER fabricate a street/postcode.>",
   "subject_line": "<Subject line, e.g. 'Application – [Role Title] | [Job ID if known]'>",
   "para1": "<Para 1 — ~80 words, why this company + role, do NOT start with 'I am writing to apply' or 'I am excited'>",
   "para2": "<Para 2 — ~100 words, experience at **Accenture Solutions** and **Chintamani Thermal Technologies** mapped to JD, ≥2 metrics>",

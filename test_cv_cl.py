@@ -17,7 +17,7 @@ from utils.logger import logger
 
 # ── Job to test — pick from saved jobs ─────────────────────────
 # Change this to any job_id from DB to test a different job
-JOB_ID = "linkedin_4362276312"   # Porsche AG – Praktikum Fahrdynamiksysteme (score 8.5)
+JOB_ID = "linkedin_4418187422"   # Allianz – Working Student Group AI Office (had 3 truncations)
 # JOB_ID = "linkedin_4349086633"  # BMW Group – Praktikant Absicherung elektrischer Antriebe (8.5)
 # JOB_ID = "linkedin_4400803187"  # AUDI AG – Praktikum Ladesysteme (8.5)
 

@@ -310,7 +310,7 @@ class TemplateEngine:
                 r = para.add_run(segment_text)
                 r.bold = True if is_bold else None
 
-        for remaining in para.runs[run_idx:]:
+        for remaining in para.runs[run_idx:existing_count]:
             remaining.text = ""
 
     @staticmethod

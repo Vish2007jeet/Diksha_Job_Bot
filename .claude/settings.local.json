@@ -35,7 +35,9 @@
       "Bash(powershell -Command \"Get-Content 'data\\\\logs\\\\jobbot.log' -Tail 100 -Encoding UTF8\")",
       "Bash(cd /d D:\\\\Diksha_Job_Bot)",
       "Bash(python -c \"import ast; ast.parse\\(open\\('bot/handlers.py'\\).read\\(\\)\\); print\\('Syntax OK'\\)\")",
-      "Bash(python -c \"import json; d=json.load\\(open\\('D:/Diksha_Job_Bot/data/prompts.json','r',encoding='utf-8'\\)\\); print\\(d['cv_system'][:800]\\)\")"
+      "Bash(python -c \"import json; d=json.load\\(open\\('D:/Diksha_Job_Bot/data/prompts.json','r',encoding='utf-8'\\)\\); print\\(d['cv_system'][:800]\\)\")",
+      "Bash(python smoke_test.py)",
+      "Bash(python test_cv_cl.py)"
     ]
   }
 }

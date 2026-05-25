@@ -94,34 +94,47 @@ def _build_cv_system() -> str:
         f" You are writing for {config.USER_FULL_NAME}.\n\n"
         "PAGE LIMIT: Strict maximum 2 pages. Hard word limits per section — exceeding any limit will cause a page-3 overflow:\n"
         "  • Summary: ≤ 65 words\n"
-        "  • Core Competencies: ≤ 65 words\n"
-        "  • Each bullet description (the part AFTER the label and colon): ≤ 30 words\n"
+        "  • Core Competencies: ≤ 40 words\n"
+        "  • Each bullet: ≤ 30 words\n"
         "  • Project descriptions: ≤ 20 words each (enforced separately)\n"
         "Count your words before outputting. If any section exceeds its limit, cut words — do not summarise the limit away.\n\n"
         f"{config.CV_PROFILE_TEXT}\n\n"
-        "━━━ BULLET FORMAT LAW — zero tolerance, no exceptions ━━━\n"
-        "Every single bullet across both roles MUST follow this EXACT format:\n"
-        '  "Label: Description sentence with metric."\n\n'
-        "  Label   = 2–4 words, plain text, NO bold tags, NO asterisks, NO markdown\n"
-        "  Colon   = literal colon+space separating label from description\n"
-        "  Desc    = one sentence, specific tool/method, believable metric\n\n"
-        "CORRECT examples:\n"
-        '  "Variance Reporting: Identified a 12% budget deviation across 6 procurement categories, flagging corrective actions within 48 hours."\n'
-        '  "Dashboard Automation: Power BI reporting cycle cut from 6 hours to 45 minutes across 5 operational units."\n'
-        '  "Cost Reduction: Historical spend analysis in Excel Power Query led to 9% procurement savings over two quarters."\n'
-        '  "SLA Monitoring: Python (Pandas) pipeline processing 50,000+ insurance records reduced case resolution time by 18%."\n\n'
+        "━━━ BULLET FORMAT — natural prose, action-verb led ━━━\n"
+        "Every bullet is ONE complete sentence written the way a senior recruiter expects to read it:\n"
+        "  • Lead with a strong past-tense action verb (Identified, Analysed, Built, Automated, Designed, Streamlined, Renegotiated, Prepared).\n"
+        "  • State WHAT was done, the TOOL or METHOD used, and the OUTCOME (metric or concrete result).\n"
+        "  • No 'Label:' prefix. No colons inside the first 30 characters. No bold labels at the start.\n"
+        "  • No markdown headers, no HTML tags, no leading asterisks.\n\n"
+        "CORRECT examples (these are the target shape):\n"
+        '  "Identified a 12% budget deviation across 6 procurement categories during monthly **variance analysis**, flagging corrective actions to senior management within 48 hours."\n'
+        '  "Automated three recurring operational reports with **VBA** macros and **Power Query**, cutting preparation time from 6 hours to 45 minutes per cycle."\n'
+        '  "Analysed 50,000+ insurance records with **Python (Pandas)** and **SQL** to surface processing bottlenecks, reducing case resolution time by 18%."\n'
+        '  "Designed **Power BI** dashboards tracking SLA compliance and policy turnaround KPIs across 5 operational units serving 120+ agents."\n\n'
         "WRONG — these will be rejected:\n"
-        '  "Across 3 teams, reporting effort dropped by 30%."  ← no label\n'
-        '  "Results fast. Built dashboards in Power BI."  ← no label, not one sentence\n'
-        '  "**KPI Tracking**: Designed..."  ← asterisks forbidden\n\n'
-        "PRE-OUTPUT CHECK (mandatory before writing JSON):\n"
-        "  For every bullet string you are about to write, confirm it contains ': ' within the first 30 characters.\n"
-        "  If any bullet fails this check, rewrite it before outputting.\n\n"
-        "━━━ SENTENCE VARIETY (apply to the description part only, AFTER the label) ━━━\n"
-        "Write descriptions the way a strong human writer would — let the content decide the structure.\n"
+        '  "Variance Reporting: Identified a 12% budget deviation..."  ← Label: prefix is banned\n'
+        '  "**KPI Tracking** — designed..."  ← bold prefix label is banned\n'
+        '  "Results fast. Built dashboards in Power BI."  ← not one sentence\n\n'
+        "━━━ JD-KEYWORD BOLD HIGHLIGHTING — mandatory, makes the CV stand out to skimming recruiters ━━━\n"
+        "Wrap JD-driven ATS keywords in **double asterisks** so the template engine renders them BOLD inline.\n"
+        "These bold pulses act as visual anchors that catch the recruiter's eye in a 6-second scan.\n\n"
+        "  WHAT TO BOLD: tool names (Power BI, Python, SQL, SAP FI/CO, Power Query, VBA, Power Automate, Tableau, Excel),\n"
+        "    methodologies (Variance Analysis, Financial Reporting, KPI Dashboards, Forecasting, Reconciliation),\n"
+        "    domain terms when the JD names them (Procurement Analytics, Insurance Operations, Controlling, Stakeholder Reporting).\n"
+        "  WHAT NOT TO BOLD: verbs, articles, generic words ('data', 'team', 'work', 'system'), numbers, role titles, dates, company names inside bullets.\n"
+        "  HOW MUCH:\n"
+        "    • Summary: bold 2–3 JD keywords (the most central to the role).\n"
+        "    • Core Competencies: bold every TOOL listed (Power BI, Python, SQL, etc.); leave methodology and domain terms unbold.\n"
+        "    • Each bullet: 1–2 bold spans MAXIMUM. Many bullets will have just one. Some may have zero — that is fine.\n"
+        "    • Project descriptions: 1 bold span each (the dominant tool).\n"
+        "    • TOTAL across the whole CV: 10–15 bold spans. NEVER exceed 18 — over-bolding looks spammy and defeats the purpose.\n"
+        "  REPETITION: bold a keyword on its FIRST occurrence per section only. If 'Power BI' appears in 3 bullets, bold it in the first, leave it plain in the others.\n"
+        "  PUNCTUATION: bold the keyword only, not surrounding punctuation. ✓ `**Power BI**,`   ✗ `**Power BI,**`\n"
+        "  HYGIENE: never bold a partial word. Never nest. Never leave an unmatched `**`. Always paired.\n\n"
+        "━━━ SENTENCE VARIETY (apply across all 8 bullets) ━━━\n"
+        "Write the way a strong human writer would — let the content decide the structure.\n"
         "Do NOT rotate named patterns. Instead follow these natural variety rules:\n\n"
-        "  LENGTH: Mix at least one short punchy description (≤12 words) with at least one detailed one (25+ words) per role.\n"
-        "  RHYTHM: No two consecutive bullets may start their description with the same word or verb.\n"
+        "  LENGTH: Mix at least one short punchy bullet (≤15 words) with at least one detailed one (25+ words) per role.\n"
+        "  RHYTHM: No two consecutive bullets may start with the same verb. Vary openers across the 8 bullets — do not use 'Identified' twice, 'Analysed' twice, etc.\n"
         "  METRICS: Use a metric wherever it makes the bullet stronger and the value stays realistic for this profile.\n"
         "    Do not force a number into every bullet — some bullets read better as concrete qualitative outcomes.\n"
         "    Qualitative outcomes must be specific and concrete — never vague ('improved efficiency', 'enhanced performance').\n"
@@ -152,10 +165,16 @@ def _build_cv_system() -> str:
         "the candidate could plausibly tell out loud. Apply these tests before outputting any bullet:\n\n"
         "  TIMELINE TEST — the technology or framework must have existed in production use when the role ran:\n"
         "    Chintamani role: March 2025 → Feb 2026. Accenture role: Nov 2022 → Feb 2025.\n"
-        "    • ChatGPT / GPT-4 / internal LLM tools → only credible at Chintamani (2025+), NOT at early Accenture.\n"
-        "    • AI agents, agentic workflows, RAG, vector DBs → 2024+ only.\n"
+        "    • ChatGPT, GPT-4, Claude, Gemini, Microsoft Copilot, MS365 Copilot, internal LLM tools,\n"
+        "      AI assistants, Prompt Engineering, vector DBs, RAG, agentic workflows, AI Governance →\n"
+        "      ZERO TOLERANCE: these claims may ONLY appear attributed to Chintamani (March 2025+).\n"
+        "      Attaching ANY of these to Accenture — even framed as 'exposure', 'contributed to',\n"
+        "      'research on', 'documentation of' — is FORBIDDEN. Recruiters know corporate LLM rollouts\n"
+        "      did not happen at scale before mid-2024 and will catch the timeline mismatch instantly.\n"
         "    • Power BI / Python / SAP / Power Automate / VBA / SQL / MS365 → fine for both roles.\n"
-        "    If a JD asks for a recent tech, anchor the claim to Chintamani, not Accenture.\n\n"
+        "    If a JD asks for an AI/LLM-related skill, anchor the claim 100% to Chintamani.\n"
+        "    Accenture bullets focus on: insurance ops reporting, Python (Pandas), SQL, Power BI,\n"
+        "    Excel automation, SLA monitoring, documentation, data quality — pre-LLM era stack.\n\n"
         "  SENIORITY TEST — match the actual role level:\n"
         "    Accenture (New Associate, first job) → use 'supported', 'contributed to', 'assisted with',\n"
         "      'participated in', 'analysed', 'built under guidance'. NEVER: 'led', 'owned', 'managed a team',\n"
@@ -179,11 +198,21 @@ def _build_cv_system() -> str:
         "    Sentence 1: LEAD with the 3 years of work experience (insurance ops at Accenture + procurement\n"
         "      analytics at Chintamani). The MSc is supporting context, NOT the opener — she started March 2026.\n"
         "    Sentence 2: what she does best, tied to the JD (1 specific theme — e.g. 'reporting automation',\n"
-        "      'procurement governance', 'stakeholder-ready analysis').\n"
+        "      'procurement governance', 'stakeholder-ready analysis'). MUST embed ONE specific anchor metric.\n"
+        "      ROTATE through this pool — do NOT default to the same anchor every application:\n"
+        "        (a) 'cutting weekly reporting from 6 hours to 45 minutes' (automation focus)\n"
+        "        (b) 'surfacing a 12% procurement deviation finance had missed for two quarters' (analytics/discovery focus)\n"
+        "        (c) 'processing 50,000+ insurance records to cut case resolution time by 18%' (data/Python focus)\n"
+        "        (d) 'renegotiating 14 supplier contracts for a 9% cost reduction over two quarters' (cost/PMO focus)\n"
+        "        (e) 'reducing exception rates by 11% across 5 operational units serving 120+ agents' (operations/scale focus)\n"
+        "        (f) 'improving forecast accuracy by 17% through structured SAP FI/CO inputs' (finance/controlling focus)\n"
+        "      Pick the anchor whose theme maps closest to the JD's stated focus. If two JDs in a batch share a theme,\n"
+        "      pick a SECONDARY anchor for the second one — never repeat the same anchor verbatim.\n"
         "    Sentence 3: where she is now (MSc Business Analytics at KU Eichstätt-Ingolstadt formalising the practice)\n"
         "      and what she wants to contribute to this specific role.\n"
         "    Banned: opening with 'Skilled in [tools list]', 'Hands-on experience in [tools list]',\n"
-        "      'MSc student with...' (MSc-first leads are weak — she has 3 yrs work to anchor on).\n\n"
+        "      'MSc student with...' (MSc-first leads are weak — she has 3 yrs work to anchor on),\n"
+        "      generic 'known for translating complex data' without a specific number to back it.\n\n"
         "  CORE COMPETENCIES banlist — these are NOT skills; never include them even if the JD mentions them:\n"
         "    Hybrid Work, Remote Work, Flexible Hours, Work-Life Balance, Office Presence, On-site,\n"
         "    English Language Proficiency (English fluency belongs in the Languages section, not Competencies),\n"
@@ -199,7 +228,17 @@ def _build_cv_system() -> str:
         "    A stretch claim in Core Competencies is OK only if at least one bullet (or CL para) backs it\n"
         "    with exposure-language — otherwise drop it from Competencies too.\n\n"
         "SECTION ORDER: Summary → Core Competencies → Professional Experience → Projects → Education → Technical Skills\n\n"
-        'BANNED WORDS: leveraged, utilised, utilized, cutting-edge, delve, foster, garner, showcase, transformative, synergy, proactive, pivotal, crucial, enhance, "serves as", "boasts", "state-of-the-art", successfully, robust, seamlessly, impactful, "result-driven", "innovative solutions", "best-in-class", furthermore, moreover, "strong work ethic", "team player", "attention to detail", "proven track record", "detail-oriented", "highly motivated", "self-motivated", "played a key role in", "was involved in", "helped to achieve", "it is worth noting", "needless to say"\n\n'
+        "━━━ EDUCATION RENDERING — mandatory, prevents date-overlap suspicion ━━━\n"
+        "  The PGDM at Welingkar (Sept 2023 – Aug 2025) overlaps with full-time work at Accenture\n"
+        "  and Chintamani. This is LEGITIMATE — the PGDM is an online distance-learning programme\n"
+        "  designed for working professionals. But a recruiter scanning dates cannot tell that\n"
+        "  unless the CV says so explicitly. Therefore:\n"
+        "    • The Welingkar PGDM entry MUST always include the tag '(Online / Distance Learning)'\n"
+        "      immediately after the programme name — every CV, no exceptions.\n"
+        "    • Never drop, paraphrase, or shorten this tag.\n"
+        "    • If a CL touches education timing, frame the PGDM as 'pursued online alongside full-time work'.\n\n"
+        'BANNED WORDS (high-signal AI tells and filler — banned to keep prose natural): cutting-edge, delve, foster, garner, showcase, transformative, synergy, pivotal, "serves as", "boasts", "state-of-the-art", "result-driven", "innovative solutions", "best-in-class", furthermore, moreover, "strong work ethic", "team player", "attention to detail", "proven track record", "detail-oriented", "highly motivated", "self-motivated", "played a key role in", "was involved in", "helped to achieve", "it is worth noting", "needless to say", "forward-thinking", "forward thinking", "emerging technologies", "next-generation", "next generation", "game-changing", "world-class", "industry-leading", "thought leadership"\n'
+        "(Note: 'leveraged', 'utilised', 'enhanced', 'robust', 'impactful', 'proactive' are PERMITTED — overzealous banning forced awkward synonyms. Use sparingly and naturally.)\n\n"
         "BANNED PATTERNS:\n"
         "- Transition openers: never start a sentence with 'Furthermore', 'Moreover', 'Additionally', 'As a result'\n"
         "- Bullet uniformity: alternate short punchy (≤12 words) with long technical (25+ words) — no two consecutive bullets same length class\n"
@@ -305,8 +344,12 @@ def _build_cl_system() -> str:
         "  the data side of operations'. Do NOT force it if the JD focus is unrelated to this arc.\n\n"
         "━━━ FEASIBILITY LAW — claims must be defensible in interview ━━━\n"
         "  TIMELINE: Chintamani = March 2025 → Feb 2026. Accenture = Nov 2022 → Feb 2025.\n"
-        "    ChatGPT / LLMs / internal AI tools are only credible at Chintamani (2025+), NOT at early Accenture.\n"
-        "    AI agents / RAG / agentic workflows → 2024+ only.\n"
+        "    ZERO-TOLERANCE: ChatGPT, Claude, Gemini, GPT-4, Microsoft Copilot, MS365 Copilot, internal\n"
+        "    AI tools, Prompt Engineering, RAG, vector DBs, agentic workflows, AI Governance — these claims\n"
+        "    MAY ONLY be attributed to Chintamani (March 2025+). Never to Accenture, not even framed as\n"
+        "    'exposure' / 'research on' / 'documentation of'. Corporate LLM adoption did not happen at scale\n"
+        "    before mid-2024; attributing it to Accenture (which ended Feb 2025) is a timeline mismatch a\n"
+        "    recruiter will catch in seconds.\n"
         "  SENIORITY: Accenture was a New Associate role — use 'supported / contributed to / assisted with /\n"
         "    analysed', NOT 'led / owned / managed a team / drove strategy / mentored 20 people'.\n"
         "    Chintamani as Assistant Manager allows 'coordinated / built / delivered / presented to senior mgmt'.\n"
@@ -316,11 +359,20 @@ def _build_cl_system() -> str:
         "    SAP FI/CO, Power Automate, MS365, Tableau). Do NOT invent R, Snowflake, Databricks, dbt, AWS, etc.\n"
         "  FRAMING for adjacent/stretch skills: use 'supported X', 'contributed to Y', 'exposure to Z' —\n"
         "    NEVER 'owned', 'built from scratch single-handedly', 'transformed company-wide'.\n\n"
+        "━━━ INLINE BOLD HIGHLIGHTING — make 3–6 JD keywords pop in the body ━━━\n"
+        "  Wrap with **double asterisks** to render BOLD in the DOCX:\n"
+        "    - Company name (e.g. **Allianz**) on its 1st and 2nd mention in the body — already required.\n"
+        "    - Project names (**Supplier Spend Analytics and Cost Dashboard**, **Insurance Operations Reporting Automation**) — already required.\n"
+        "    - JD-driven keywords on FIRST occurrence only: the 3–6 most central tools/methodologies from the JD\n"
+        "      (e.g. **Power BI**, **Python (Pandas)**, **SQL**, **SAP FI/CO**, **Variance Analysis**, **Financial Reporting**).\n"
+        "    - TOTAL bold spans across the 5 paragraphs: 6–10. Never above 12 — over-bolding looks like a keyword dump.\n"
+        "    - Do NOT bold verbs, generic words, dates, or numbers.\n"
+        "    - Do NOT bold the same keyword twice in the body — first occurrence only.\n\n"
         "RULES:\n"
         "- Take reference from the CV content provided.\n"
         "- Sound human, confident, and natural — not AI-generated. Must NOT be detectable by AI detection software.\n"
-        "- Bold company names with **double asterisks**.\n"
-        '- Never use: leveraged, utilised, utilized, cutting-edge, delve, foster, garner, showcase, transformative, synergy, proactive, pivotal, crucial, enhance, "serves as", "boasts", successfully, robust, seamlessly, impactful, furthermore, moreover, "i am writing to", "i am excited to", "i would like to express", "strong work ethic", "team player", "attention to detail", "proven track record", "highly motivated", "played a key role", "needless to say"\n'
+        '- Never use: cutting-edge, delve, foster, garner, showcase, transformative, synergy, pivotal, "serves as", "boasts", furthermore, moreover, "i am writing to", "i am excited to", "i would like to express", "strong work ethic", "team player", "attention to detail", "proven track record", "highly motivated", "played a key role", "needless to say", "forward-thinking", "forward thinking", "emerging technologies", "next-generation", "next generation", "game-changing", "world-class", "industry-leading", "thought leadership"\n'
+        "  (Note: 'leveraged', 'utilised', 'enhanced', 'robust', 'impactful', 'proactive' are PERMITTED — use sparingly and naturally.)\n"
         '- No "I am passionate about" — show passion through a specific concrete example.\n'
         "- No transition openers (Furthermore, Moreover, Additionally) — lead every paragraph with the actual point.\n"
         "- Vary paragraph rhythm: mix short direct sentences with longer technical ones.\n"
@@ -346,43 +398,42 @@ Generate a fully ATS-optimised, humanised resume tailored 100% to the job descri
 Act as a 15+ year experienced ATS CV writer. The output must be practical, relatable, and undetectable as AI-written.
 
 STRICT RULES — follow exactly, never do extra, never do less:
-1. Professional Summary: exactly ~60 words, keyword-rich, role-aligned to the JD. HARD CAP: ≤ 65 words. Count before outputting.
-2. Core Competencies: comma-separated list of ALL JD tools, software, methodologies, and domain skills. This is your PRIMARY keyword coverage layer — include every relevant JD term not already prominent in bullets. HARD CAP: ≤ 70 words. Count before outputting.
-3. Each role: exactly 4 bullets. FORMAT: "Two To Four Word Label: description sentence."
-   — The label (before the colon) is MANDATORY on every bullet. Plain text only — no HTML, no asterisks, no markdown.
-   — BEFORE writing each bullet, confirm it starts with a label followed by ': '.
-   — HARD CAP per bullet description (the text AFTER the label and colon): ≤ 30 words. Count words in the description part only.
-4. All 8 labels across both roles must be completely unique — zero repeats across chintamani and accenture.
+1. Professional Summary: exactly ~60 words, keyword-rich, role-aligned to the JD. HARD CAP: ≤ 65 words. Bold 2–3 JD keywords inline using **double asterisks**. Count before outputting.
+2. Core Competencies: 35–40 word comma- or pipe-separated list of JD tools, methodologies, and domain skills. Bold every TOOL name inline using **double asterisks** (e.g. **Power BI**, **Python (Pandas)**, **SQL**, **SAP FI/CO**). Leave methodologies and domain terms unbold. HARD CAP: ≤ 40 words. Count before outputting.
+3. Each role: exactly 4 bullets. FORMAT: ONE complete sentence per bullet, action-verb led — no "Label:" prefix, no bold opener, no colon in the first 30 characters. Inline **bold** allowed ONLY for JD keywords mid-sentence.
+   — Plain prose, written the way a real recruiter expects to read a CV.
+   — HARD CAP per bullet: ≤ 30 words.
+4. JD-keyword bold pulses: 1–2 per bullet maximum; bold a keyword only on its FIRST occurrence per section; total bold spans across the whole CV between 10 and 15 (never above 18).
 5. Distribute ATS keywords across ALL sections: summary, Core Competencies, bullets, project descriptions.
    Keywords may appear in both Core Competencies AND a bullet if they are central to the role.
 6. Metrics: use a metric wherever it makes the bullet stronger and stays realistic for this profile (5–30% range, minutes/hours saved, thousands of records).
    Do not force a number into every bullet — concrete qualitative outcomes are equally strong.
    Keep all values believable for 2–3 years experience in ops/analytics at Accenture + Chintamani level.
-7. Both project descriptions: ONE sentence only, max 20 words each. Format: "To [verb] [what] using [tool] to [outcome]." Tailored to JD. No paragraph, no multiple sentences.
+7. Both project descriptions: ONE sentence only, max 20 words each. Tailored to JD. Bold the dominant tool inline (e.g. **Power BI**, **Python (Pandas)**). No paragraph, no multiple sentences.
 8. Content must be practical, relatable, and not detectable as AI-written.
-9. Vary description length naturally — at least one short (≤12 words) and one detailed (20-30 words) per role.
-   No two consecutive bullets start their description with the same word. No named pattern rotation.
+9. Vary bullet length naturally — at least one short (≤15 words) and one detailed (25-30 words) per role.
+   No two consecutive bullets start with the same verb. No named pattern rotation.
 10. Cover: data analysis, business insight, operations, reporting, stakeholder impact — distributed naturally.
 11. Write the way a strong human writer would — let the content decide the structure, not a template.
 
 Respond with this exact JSON schema (no extra keys, no missing keys):
 {{
-  "summary": "<~60 word professional summary tailored to JD>",
-  "competencies": "<~60 word comma-separated core competencies tailored to JD>",
+  "summary": "<~60 word professional summary tailored to JD, with 2–3 inline **bold** JD keywords>",
+  "competencies": "<35–40 words. Bold every tool name with **double asterisks**. Example: '**Power BI** · **Python (Pandas)** · **SQL** · **Power Query** · **VBA** · **SAP FI/CO** · Financial Reporting · Variance Analysis · KPI Dashboards · Insurance Operations'>",
   "chintamani": [
-    "Two To Four Word Label: one sentence rewritten from the base CV bullets, angle tailored to this JD.",
-    "Two To Four Word Label: one sentence rewritten from the base CV bullets, qualitative outcome — specific and concrete.",
-    "Two To Four Word Label: one sentence rewritten from the base CV bullets, metric only if one naturally exists in the base CV.",
-    "Two To Four Word Label: one sentence rewritten from the base CV bullets, operational or stakeholder impact."
+    "One natural sentence led by a strong action verb, with 1–2 inline **bold** JD keywords, tailored to this JD.",
+    "One natural sentence with a concrete qualitative outcome — specific, not vague. Inline **bold** only for the dominant JD tool/method.",
+    "One natural sentence carrying a metric that genuinely fits the base-CV achievements. 0–1 inline **bold** keyword.",
+    "One natural sentence on operational or stakeholder impact. 0–1 inline **bold** keyword."
   ],
   "accenture": [
-    "Two To Four Word Label: one sentence rewritten from the base CV bullets, angle tailored to this JD.",
-    "Two To Four Word Label: one sentence rewritten from the base CV bullets, metric only if one naturally exists in the base CV.",
-    "Two To Four Word Label: one sentence rewritten from the base CV bullets, analysis or insight that drove a real decision.",
-    "Two To Four Word Label: one sentence rewritten from the base CV bullets, process or reporting improvement."
+    "One natural sentence led by a strong action verb, with 1–2 inline **bold** JD keywords, tailored to this JD.",
+    "One natural sentence carrying a believable metric from the base CV. 0–1 inline **bold** keyword.",
+    "One natural sentence on analysis or insight that drove a real decision. 0–1 inline **bold** keyword.",
+    "One natural sentence on a process or reporting improvement. 0–1 inline **bold** keyword."
   ],
-  "project1_desc": "<ONE sentence only, max 20 words: 'To [verb] [what] using [tool] to [outcome].' — Supplier Spend Analytics project, tailored to JD>",
-  "project2_desc": "<ONE sentence only, max 20 words: 'To [verb] [what] using [tool] to [outcome].' — Insurance Operations Reporting Automation project, tailored to JD>"
+  "project1_desc": "<ONE sentence ≤ 20 words: Supplier Spend Analytics project tailored to JD. Bold the dominant tool, e.g. **Power BI**.>",
+  "project2_desc": "<ONE sentence ≤ 20 words: Insurance Operations Reporting Automation tailored to JD. Bold the dominant tool, e.g. **Python (Pandas)**.>"
 }}
 """
 
@@ -435,7 +486,7 @@ RULES:
 
 FEASIBILITY LAW (every claim must be defensible in interview):
 - Chintamani = Mar 2025–Feb 2026 (Assistant Mgr level); Accenture = Nov 2022–Feb 2025 (New Associate level).
-- ChatGPT/LLM/internal-AI-tool claims belong to Chintamani only — never Accenture.
+- ZERO TOLERANCE: ChatGPT/Claude/Gemini/Copilot/LLM/RAG/AI-Governance/Prompt-Engineering/internal-AI-tool claims belong to Chintamani ONLY — never Accenture, not even as "exposure" or "research on" or "documentation of".
 - Accenture verbs: supported / contributed to / assisted with / analysed. Chintamani verbs: coordinated / built / delivered / presented.
 - Numbers in the 5–30% / minutes-hours / thousands-of-records / 3–6 categories range — never millions of records or company-wide rollouts.
 - Only use tools from the profile (Power BI, Python/Pandas, SQL, Excel VBA/Power Query, SAP FI/CO, Power Automate, Tableau, MS365). Do NOT invent R, Snowflake, Databricks, AWS, dbt, etc.
@@ -547,6 +598,7 @@ class CVGenerator:
     async def generate_cl_content(
         self, job: JobListing, application_notes: str = "", feedback: str = "",
         jd_keywords: list | None = None, cv_content: dict | None = None,
+        company_fact: str = "",
     ) -> Dict:
         prompt = get_prompt("cl_prompt").format(
             title=job.title,
@@ -555,6 +607,19 @@ class CVGenerator:
             description=job.description[:4000] if job.description else "Not provided.",
             notes=application_notes or "None",
         )
+        if company_fact:
+            fact_block = (
+                f"\n\n{'='*50}\n"
+                "COMPANY ANCHOR FACT (from Wikipedia — verified, not invented):\n"
+                f"  {company_fact}\n\n"
+                "Use this fact to ground PARA 1 or PARA 4. Weave it naturally — never quote it\n"
+                "verbatim, never use the words 'according to Wikipedia'. Pair it with what\n"
+                "YOU bring: how your specific work maps to what they do. The goal is to prove\n"
+                "you actually know who they are, not to recite their history.\n"
+                "If the fact doesn't fit the JD theme, ignore it — do not force it in.\n"
+                f"{'='*50}\n"
+            )
+            prompt = fact_block + "\n" + prompt
         if cv_content:
             bullets_chintamani = "\n".join(f"  - {b}" for b in cv_content.get("chintamani", []))
             bullets_accenture  = "\n".join(f"  - {b}" for b in cv_content.get("accenture",  []))

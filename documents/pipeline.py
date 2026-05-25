@@ -149,10 +149,15 @@ def _build_expense_report(job, tracker) -> str:
 
 _CV_WORD_LIMITS = {
     "summary":     65,
-    "competencies": 65,
+    "competencies": 40,
 }
 _BULLET_DESC_WORD_LIMIT = 30
 _PROJECT_DESC_WORD_LIMIT = 20
+
+
+def _wc(text: str) -> int:
+    """Word count that ignores inline **bold** markdown markers."""
+    return len(re.sub(r'\*\*', '', text or '').split())
 
 
 def _check_cv_word_counts(cv_content: dict) -> List[str]:
@@ -163,8 +168,7 @@ def _check_cv_word_counts(cv_content: dict) -> List[str]:
     violations: List[str] = []
 
     for field, limit in _CV_WORD_LIMITS.items():
-        text = cv_content.get(field, "")
-        count = len(text.split())
+        count = _wc(cv_content.get(field, ""))
         if count > limit:
             violations.append(
                 f"{field}: {count} words — EXCEEDS {limit}-word cap by {count - limit} word(s). "
@@ -173,23 +177,61 @@ def _check_cv_word_counts(cv_content: dict) -> List[str]:
 
     for role in ("chintamani", "accenture"):
         for i, bullet in enumerate(cv_content.get(role, []), 1):
-            desc = bullet.split(": ", 1)[1] if ": " in bullet else bullet
-            count = len(desc.split())
+            # Natural-bullet format: count the whole sentence. Strip ** markers
+            # so bold formatting does not inflate word counts.
+            plain = re.sub(r'\*\*', '', bullet)
+            count = len(plain.split())
             if count > _BULLET_DESC_WORD_LIMIT:
                 violations.append(
-                    f"{role}[{i}] description: {count} words — EXCEEDS {_BULLET_DESC_WORD_LIMIT}-word cap by "
+                    f"{role}[{i}]: {count} words — EXCEEDS {_BULLET_DESC_WORD_LIMIT}-word cap by "
                     f"{count - _BULLET_DESC_WORD_LIMIT} word(s). Cut words, keep the fact."
                 )
 
     for field, limit in (("project1_desc", _PROJECT_DESC_WORD_LIMIT), ("project2_desc", _PROJECT_DESC_WORD_LIMIT)):
-        text = cv_content.get(field, "")
-        count = len(text.split())
+        count = _wc(cv_content.get(field, ""))
         if count > limit:
             violations.append(
                 f"{field}: {count} words — EXCEEDS {limit}-word cap by {count - limit} word(s)."
             )
 
     return violations
+
+
+# ── Accenture feasibility validator ────────────────────────────
+# Accenture role ran Nov 2022 – Feb 2025 — corporate LLM/AI adoption did not
+# happen at scale in that window. Any AI/LLM term on an Accenture bullet is a
+# timeline mismatch a recruiter will catch in seconds. Force a retry if found.
+
+_ACCENTURE_BANNED_RE = re.compile(
+    r"\b("
+    r"AI|A\.I\.|ML|LLM|LLMs|ChatGPT|Claude|Gemini|Bard|Copilot|"
+    r"GPT-?[0-9]?|RAG|agentic|prompt\s+engineering|"
+    r"AI\s+Governance|generative\s+AI|GenAI|"
+    r"artificial\s+intelligence|machine\s+learning|"
+    r"MS365\s+Copilot|Microsoft\s+Copilot|"
+    r"vector\s+(database|DB|store)|embeddings?\s+model"
+    r")\b",
+    re.IGNORECASE,
+)
+
+
+def _check_accenture_feasibility(cv_content: dict) -> List[str]:
+    """
+    Return a list of Accenture bullets that contain AI/LLM era-mismatch terms.
+    Accenture timeline: Nov 2022 – Feb 2025 (pre-corporate-LLM rollout).
+    These claims belong on Chintamani bullets only (Mar 2025+).
+    """
+    bad: List[str] = []
+    for i, bullet in enumerate(cv_content.get("accenture", []), 1):
+        plain = re.sub(r"\*\*", "", bullet)
+        matches = _ACCENTURE_BANNED_RE.findall(plain)
+        if matches:
+            unique = sorted({m.strip() for m in matches})
+            bad.append(
+                f"accenture[{i}] contains era-mismatch term(s) {unique}: "
+                f"{plain[:120]}{'…' if len(plain) > 120 else ''}"
+            )
+    return bad
 
 
 # ── Bullet label validator ─────────────────────────────────────
@@ -264,6 +306,22 @@ def _check_para1_opening(cl_data: dict) -> str:
     if _BANNED_OPENERS_RE.match(para1):
         return f"para1 opens with a banned formulaic pattern: {para1[:80]!r}"
     return ""
+
+
+def _better_eval(candidate, current_best) -> bool:
+    """
+    Ranking for retry-loop 'keep best so far':
+      1. No banned words wins over any number of banned words.
+      2. Within the same banned-words bucket, higher ATS wins.
+      3. Tie-break: equal ATS → keep candidate (later attempt benefits from prior feedback).
+    """
+    cand_clean = not candidate.banned_words_found
+    best_clean = not current_best.banned_words_found
+    if cand_clean and not best_clean:
+        return True
+    if not cand_clean and best_clean:
+        return False
+    return candidate.ats_score >= current_best.ats_score
 
 
 def check_cl_quality(cl_text: str, company: str) -> List[str]:
@@ -354,6 +412,70 @@ Return valid JSON only. Example: ["Supply Chain Management", "SAP MM", "Python",
 """
 
 _HAIKU_MODEL = "claude-haiku-4-5"
+
+
+# ── Company research hook ──────────────────────────────────────
+# Pulls one factual sentence about the company from Wikipedia's REST summary API.
+# Used to anchor the CL opener with something specific to *them*, not just the
+# candidate's own anecdote. Fails open — empty string on any miss.
+
+_WIKI_SUMMARY_URL = "https://en.wikipedia.org/api/rest_v1/page/summary/{title}"
+_COMPANY_CLEANUP_RE = re.compile(
+    r"\s+(SE|AG|GmbH|Inc|Inc\.|Corp|Corp\.|Ltd|Ltd\.|LLC|Group|"
+    r"plc|PLC|S\.A\.|SA|N\.V\.|NV|Solutions|Technologies|"
+    r"Pvt\.?\s*Ltd\.?|Private\s+Limited)\.?$",
+    re.IGNORECASE,
+)
+
+
+async def _fetch_company_fact(company: str) -> str:
+    """
+    Fetch a 1-sentence factual summary about the company from Wikipedia.
+    Returns "" if the company has no Wikipedia entry, the entry is a
+    disambiguation page, or anything else goes wrong. Always fail-open.
+    """
+    import requests as _requests
+
+    if not company or len(company.strip()) < 2:
+        return ""
+
+    # Wikipedia titles use underscores; try the full name first, then a stripped form.
+    candidates = [company.strip()]
+    stripped = _COMPANY_CLEANUP_RE.sub("", company.strip()).strip()
+    if stripped and stripped != company.strip():
+        candidates.append(stripped)
+
+    headers = {
+        "User-Agent": "JobBot/1.0 (Wikipedia summary lookup for CL personalisation)",
+        "Accept": "application/json",
+    }
+
+    def _try_one(title: str) -> str:
+        url = _WIKI_SUMMARY_URL.format(title=title.replace(" ", "_"))
+        try:
+            resp = _requests.get(url, headers=headers, timeout=8)
+            if resp.status_code != 200:
+                return ""
+            data = resp.json()
+            if data.get("type") == "disambiguation":
+                return ""
+            extract = (data.get("extract") or "").strip()
+            if not extract:
+                return ""
+            # Keep only the first sentence — concise anchor, not a paragraph.
+            first_sentence = re.split(r"(?<=[.!?])\s+", extract, maxsplit=1)[0]
+            return first_sentence.strip()
+        except Exception:
+            return ""
+
+    for title in candidates:
+        fact = await asyncio.to_thread(_try_one, title)
+        if fact:
+            logger.info(f"[Company Fact] {company!r}: {fact[:90]}{'…' if len(fact) > 90 else ''}")
+            return fact
+
+    logger.info(f"[Company Fact] No Wikipedia entry found for {company!r} — skipping")
+    return ""
 
 
 async def _extract_jd_keywords(jd: str, tracker=None, job_id: str = "") -> list[str]:
@@ -479,8 +601,12 @@ class DocumentPipeline:
                 f"proceeding with best result for {job.title} @ {job.company}"
             )
 
+        # Stage 1b: Wikipedia company fact (free, ~50ms, fails open) — anchors CL opener.
+        company_fact = await _fetch_company_fact(job.company)
+
         cl_content, cl_eval = await self._cl_loop(
-            job, jd, application_notes, jd_keywords=jd_keywords, cv_content=cv_content
+            job, jd, application_notes, jd_keywords=jd_keywords,
+            cv_content=cv_content, company_fact=company_fact,
         )
 
         for content, ev in ((cv_content, cv_eval), (cl_content, cl_eval)):
@@ -568,22 +694,8 @@ class DocumentPipeline:
                     continue
                 raise
 
-            # Bullet label check — short-circuit if too many are malformed
-            bad = _check_bullet_labels(content)
-            if bad:
-                for b in bad:
-                    logger.warning(f"CV bullet missing label (attempt {attempt + 1}): {b}")
-                if len(bad) > 1 and attempt < _MAX_RETRIES:
-                    label_msg = (
-                        f"BULLET FORMAT ERROR: {len(bad)} bullet(s) are missing the required "
-                        f"'Label: ' prefix within the first 30 characters.\n"
-                        f"Affected: {bad}\n"
-                        "Fix: every bullet MUST start with 'Two To Four Word Label: description'."
-                    )
-                    feedback = label_msg + ("\n\n" + feedback if feedback else "")
-                    feedback = feedback[:_FEEDBACK_MAX_CHARS]
-                    logger.warning(f"CV bullet label check failed ({len(bad)} bad) — retry {attempt + 1}/{_MAX_RETRIES}")
-                    continue  # skip humanise/evaluate; go straight to next attempt
+            # Natural-bullet format: no label prefix expected. Bullet structure is
+            # validated by word-count + ATS evaluator downstream.
 
             # Word count check — short-circuit if any section exceeds its 2-page cap
             over_limit = _check_cv_word_counts(content)
@@ -601,13 +713,36 @@ class DocumentPipeline:
                     logger.warning(f"CV word-count check failed ({len(over_limit)} violations) — retry {attempt + 1}/{_MAX_RETRIES}")
                     continue  # skip humanise/evaluate; go straight to next attempt
 
+            # Feasibility check — Accenture (Nov 2022–Feb 2025) cannot claim AI/LLM work.
+            era_bad = _check_accenture_feasibility(content)
+            if era_bad:
+                for b in era_bad:
+                    logger.warning(f"CV feasibility violation (attempt {attempt + 1}): {b}")
+                if attempt < _MAX_RETRIES:
+                    era_msg = (
+                        f"FEASIBILITY ERROR: {len(era_bad)} Accenture bullet(s) use AI/LLM/Copilot/"
+                        f"AI-Governance terms. Accenture role ran Nov 2022–Feb 2025 (pre-corporate-LLM era) — "
+                        f"these claims are a timeline mismatch a recruiter will catch instantly.\n"
+                        + "\n".join(f"  • {b}" for b in era_bad)
+                        + "\n\nFix: rewrite each affected Accenture bullet WITHOUT any AI/ML/LLM/Copilot/"
+                        "AI-Governance reference. Use insurance ops / Python (Pandas) / SQL / Power BI / "
+                        "Excel automation / SLA monitoring / documentation / data-quality framing instead. "
+                        "AI/LLM claims are permitted ONLY on Chintamani bullets (Mar 2025+)."
+                    )
+                    feedback = era_msg + ("\n\n" + feedback if feedback else "")
+                    feedback = feedback[:_FEEDBACK_MAX_CHARS]
+                    logger.warning(
+                        f"CV feasibility check failed ({len(era_bad)} bad) — retry {attempt + 1}/{_MAX_RETRIES}"
+                    )
+                    continue  # skip humanise/evaluate; regenerate
+
             if config.HUMANIZE_ENABLED:
                 content = await self._humanizer.humanize_cv(job.job_id, content)
             else:
                 logger.info("CV humanizer skipped (disabled via /humanize)")
             ev = await self._evaluator.evaluate_cv(job.job_id, jd, content)
 
-            if best_eval is None or ev.ats_score > best_eval.ats_score:
+            if best_eval is None or _better_eval(ev, best_eval):
                 best_content, best_eval = content, ev
 
             passes = ev.ats_score >= config.ATS_SCORE_TARGET and not ev.banned_words_found
@@ -628,7 +763,7 @@ class DocumentPipeline:
         )
         return best_content, best_eval
 
-    async def _cl_loop(self, job, jd: str, application_notes: str, jd_keywords: list | None = None, cv_content: dict | None = None):
+    async def _cl_loop(self, job, jd: str, application_notes: str, jd_keywords: list | None = None, cv_content: dict | None = None, company_fact: str = ""):
         """
         Generate → Humanize → Evaluate loop for the Cover Letter.
         Mirrors _cv_loop: retries with evaluator feedback until score >= config.ATS_SCORE_TARGET
@@ -643,6 +778,7 @@ class DocumentPipeline:
                 content = await self.generator.generate_cl_content(
                     job, application_notes=application_notes, feedback=feedback,
                     jd_keywords=jd_keywords, cv_content=cv_content,
+                    company_fact=company_fact,
                 )
             except Exception as exc:
                 action = "retrying" if attempt < _MAX_RETRIES else "giving up"
@@ -684,7 +820,9 @@ class DocumentPipeline:
 
             ev = await self._evaluator.evaluate_cl(job.job_id, jd, content)
 
-            if best_eval is None or ev.ats_score > best_eval.ats_score:
+            # Ranking: prefer (no banned words) over (banned words), then higher ATS.
+            # Avoids shipping a higher-ATS result that still contains banned filler.
+            if best_eval is None or _better_eval(ev, best_eval):
                 best_content, best_eval = content, ev
 
             passes = ev.ats_score >= config.ATS_SCORE_TARGET and not ev.banned_words_found

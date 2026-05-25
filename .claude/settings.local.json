@@ -39,7 +39,10 @@
       "Bash(python smoke_test.py)",
       "Bash(python test_cv_cl.py)",
       "Bash(set PYTHONUTF8=1)",
-      "PowerShell($env:PYTHONIOENCODING=\"utf-8\"; $env:PYTHONUTF8=\"1\"; python test_cv_cl.py 2>&1 | Select-Object -Last 80)"
+      "PowerShell($env:PYTHONIOENCODING=\"utf-8\"; $env:PYTHONUTF8=\"1\"; python test_cv_cl.py 2>&1 | Select-Object -Last 80)",
+      "Bash(PYTHONIOENCODING=utf-8 python test_cv_cl.py)",
+      "Bash(PYTHONIOENCODING=utf-8 python -c ' *)",
+      "Bash(PYTHONIOENCODING=utf-8 python -c \"from documents import pipeline; from ai import cv_generator; print\\('OK'\\)\")"
     ]
   }
 }

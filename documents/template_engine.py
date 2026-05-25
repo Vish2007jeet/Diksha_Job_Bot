@@ -161,66 +161,55 @@ class TemplateEngine:
 
     def _replace_bullet(self, para, text: str) -> None:
         """
-        Replace a bullet paragraph that follows the format:
-        'Bold Label: Regular description text.'
-
-        The colon+space are part of the bold label.
-        Bold=True on label run, bold=None (inherit) on body run — matches template.
-        Strips any ** markers the AI may have added around the label.
+        Replace a CV bullet paragraph with natural-prose text.
+        Honors inline **bold** markers for JD-keyword highlighting
+        (e.g. 'Analysed 50,000+ records using **Python (Pandas)** and **SQL**...').
+        Strips legacy <b>...</b> HTML tags the AI sometimes adds.
+        Non-bold segments use bold=None (inherit) — never bold=False.
         """
-        # Strip ** markers and <b>...</b> HTML tags the AI sometimes adds
-        text = re.sub(r'\*\*', '', text)
         text = re.sub(r'</?b>', '', text, flags=re.IGNORECASE)
-
-        if ': ' in text:
-            label_part, body_part = text.split(': ', 1)
-            bold_text = label_part + ': '
-            normal_text = body_part
-        else:
-            bold_text = ""
-            normal_text = text
-
-        ref_run = para.runs[0] if para.runs else None
-
-        for run in para.runs:
-            run.text = ""
-
-        if para.runs:
-            r0 = para.runs[0]
-            r0.text = bold_text
-            r0.bold = True
-
-            if len(para.runs) > 1:
-                for r in para.runs[1:]:
-                    r.text = ""
-                para.runs[1].text = normal_text
-                para.runs[1].bold = None   # inherit — matches reference template
-            else:
-                new_run = para.add_run(normal_text)
-                new_run.bold = None        # inherit — never explicitly False
-                if ref_run:
-                    try:
-                        new_run.font.size = ref_run.font.size
-                        new_run.font.name = ref_run.font.name
-                    except Exception:
-                        pass
-        else:
-            r_bold = para.add_run(bold_text)
-            r_bold.bold = True
-            r_norm = para.add_run(normal_text)
-            r_norm.bold = None
+        self._render_with_bold_markers(para, text)
 
     def _replace_plain(self, para, text: str) -> None:
-        """Replace a paragraph with plain text (summary, competencies).
+        """
+        Replace a paragraph (summary, competencies, project descriptions).
+        Honors inline **bold** markers for JD-keyword highlighting.
         Never forces bold=False — lets the paragraph style inherit naturally.
         """
+        text = re.sub(r'</?b>', '', text, flags=re.IGNORECASE)
+        self._render_with_bold_markers(para, text)
+
+    def _render_with_bold_markers(self, para, text: str) -> None:
+        """
+        Shared renderer: clears the paragraph's runs, then writes (is_bold, segment)
+        tuples derived from **bold** markers. Reuses existing runs first to keep
+        the template's font/size, then appends new runs as needed.
+        """
+        parts = self._split_bold_markers(text)
+        ref_run = para.runs[0] if para.runs else None
         for run in para.runs:
             run.text = ""
-        if para.runs:
-            para.runs[0].text = text
-            # Do NOT set bold — leave it as None so style is inherited
-        else:
-            para.add_run(text)
+
+        existing_count = len(para.runs)
+        run_idx = 0
+        for is_bold, segment_text in parts:
+            if run_idx < existing_count:
+                r = para.runs[run_idx]
+                r.text = segment_text
+                r.bold = True if is_bold else None
+                run_idx += 1
+            else:
+                r = para.add_run(segment_text)
+                r.bold = True if is_bold else None
+                if ref_run:
+                    try:
+                        r.font.size = ref_run.font.size
+                        r.font.name = ref_run.font.name
+                    except Exception:
+                        pass
+
+        for remaining in para.runs[run_idx:existing_count]:
+            remaining.text = ""
 
     def _replace_formula_student(self, para, text: str) -> None:
         """

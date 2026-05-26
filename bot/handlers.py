@@ -1795,9 +1795,33 @@ class BotHandlers:
             parse_mode="HTML",
         ))
 
+        _CONN_ERRORS = (ConnectionError, TimeoutError, OSError)
         try:
-            result = await self.pipeline.create_application_docs(job, notes, app_number=app_number)
+            import anthropic as _anthropic
+            _CONN_ERRORS = (ConnectionError, TimeoutError, OSError,
+                            _anthropic.APIConnectionError, _anthropic.APITimeoutError)
+        except Exception:
+            pass
 
+        result = None
+        for _attempt in range(3):
+            try:
+                result = await self.pipeline.create_application_docs(job, notes, app_number=app_number)
+                break
+            except _CONN_ERRORS as conn_exc:
+                if _attempt < 2:
+                    wait = 15 * (_attempt + 1)
+                    logger.warning(f"Regen connection error (attempt {_attempt+1}/3), retrying in {wait}s: {conn_exc}")
+                    await self._tg_send(lambda w=wait, a=_attempt: bot.send_message(
+                        chat_id,
+                        f"⚠️ Connection blip (attempt {a+1}/3) — retrying in {w}s…",
+                        parse_mode="HTML",
+                    ))
+                    await asyncio.sleep(wait)
+                else:
+                    raise
+
+        try:
             # Sync Excel + Google Sheets (no new DB record — just update file snapshot)
             self.tracker.sync_to_excel()
 
@@ -1860,6 +1884,7 @@ class BotHandlers:
                 chat_id,
                 f"⚠️ <b>Template Missing</b>\n\n{exc}",
                 parse_mode="HTML",
+                reply_markup=regen_humanize_keyboard(job_id, config.HUMANIZE_ENABLED),
             ))
         except Exception as exc:
             logger.exception(f"Regen failed for {job_id}: {exc}")
@@ -1867,6 +1892,7 @@ class BotHandlers:
                 chat_id,
                 f"❌ <b>Regeneration failed:</b>\n<code>{exc}</code>",
                 parse_mode="HTML",
+                reply_markup=regen_humanize_keyboard(job_id, config.HUMANIZE_ENABLED),
             ))
 
     async def _generate_and_send_interview_prep(self, chat_id: int, job_id: str) -> None:

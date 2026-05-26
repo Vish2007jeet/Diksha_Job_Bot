@@ -42,7 +42,12 @@
       "PowerShell($env:PYTHONIOENCODING=\"utf-8\"; $env:PYTHONUTF8=\"1\"; python test_cv_cl.py 2>&1 | Select-Object -Last 80)",
       "Bash(PYTHONIOENCODING=utf-8 python test_cv_cl.py)",
       "Bash(PYTHONIOENCODING=utf-8 python -c ' *)",
-      "Bash(PYTHONIOENCODING=utf-8 python -c \"from documents import pipeline; from ai import cv_generator; print\\('OK'\\)\")"
+      "Bash(PYTHONIOENCODING=utf-8 python -c \"from documents import pipeline; from ai import cv_generator; print\\('OK'\\)\")",
+      "Bash(python -c \"from documents.pipeline import DocumentPipeline; print\\('OK'\\)\")",
+      "Bash(python -c \"import config; print\\('HUMANIZE_ENABLED=', config.HUMANIZE_ENABLED\\); print\\('ATS_SCORE_TARGET=', config.ATS_SCORE_TARGET\\); print\\('CV_BEST_OF_N=', config.CV_BEST_OF_N\\); print\\('CL_BEST_OF_N=', config.CL_BEST_OF_N\\)\")",
+      "Bash(python -c \"from bot.handlers import JobBotHandlers; from bot.keyboards import bestof_keyboard; print\\(bestof_keyboard\\(1, 3\\)\\)\")",
+      "Bash(python -c \"import bot.handlers; from bot.keyboards import bestof_keyboard; print\\('OK'\\); print\\(bestof_keyboard\\(1, 3\\).to_dict\\(\\)['inline_keyboard'][0]\\)\")",
+      "Bash(python -c \"import bot.handlers; from bot.keyboards import bestof_keyboard; kb = bestof_keyboard\\(1, 3\\); print\\('OK'\\); print\\([b['text'] for b in kb.to_dict\\(\\)['inline_keyboard'][0]]\\); print\\([b['text'] for b in kb.to_dict\\(\\)['inline_keyboard'][1]]\\)\")"
     ]
   }
 }

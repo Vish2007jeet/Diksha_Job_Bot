@@ -666,96 +666,144 @@ class DocumentPipeline:
             cl_warnings=cl_warnings,
         )
 
+    async def _humanize_and_pick_best_cv(self, job_id: str, jd: str, raw_content: dict):
+        """
+        Evaluate raw + humanized in parallel; return whichever wins _better_eval.
+
+        Why: the humanizer occasionally strips ATS keywords or introduces banned
+        filler. Without this guard the only recovery path is a full pipeline
+        retry. Costs one extra evaluator call per attempt when humanize is on.
+        """
+        if not config.HUMANIZE_ENABLED:
+            logger.info("CV humanizer skipped (disabled via /humanize)")
+            ev = await self._evaluator.evaluate_cv(job_id, jd, raw_content)
+            return raw_content, ev
+
+        humanized = await self._humanizer.humanize_cv(job_id, raw_content)
+        raw_eval, hum_eval = await asyncio.gather(
+            self._evaluator.evaluate_cv(job_id, jd, raw_content),
+            self._evaluator.evaluate_cv(job_id, jd, humanized),
+        )
+        if _better_eval(hum_eval, raw_eval):
+            return humanized, hum_eval
+        logger.warning(
+            f"CV humanizer degraded quality (raw ATS={raw_eval.ats_score} banned={raw_eval.banned_words_found or 'none'} "
+            f"vs humanized ATS={hum_eval.ats_score} banned={hum_eval.banned_words_found or 'none'}) — falling back to raw"
+        )
+        return raw_content, raw_eval
+
+    async def _cv_one_candidate(self, job, jd: str, feedback: str, jd_keywords: list | None):
+        """
+        Produce one CV candidate:
+          generate → word-count check → feasibility check → humanize-or-keep eval.
+        Return ('ok', content, eval) when an evaluated result exists, or
+               ('pre_fail', feedback_for_next_attempt, None) on word/feasibility veto, or
+               ('error', exception, None) when generation itself raised.
+        """
+        try:
+            content = await self.generator.generate_cv_content(
+                job, feedback=feedback, jd_keywords=jd_keywords
+            )
+        except Exception as exc:
+            return ("error", exc, None)
+
+        over_limit = _check_cv_word_counts(content)
+        if over_limit:
+            for v in over_limit:
+                logger.warning(f"CV word-count violation: {v}")
+            msg = (
+                f"2-PAGE OVERFLOW: {len(over_limit)} section(s) exceed their word limits.\n"
+                + "\n".join(f"  • {v}" for v in over_limit)
+                + "\nTrim each section to its cap — the CV must fit in 2 pages."
+            )
+            return ("pre_fail", msg, None)
+
+        era_bad = _check_accenture_feasibility(content)
+        if era_bad:
+            for b in era_bad:
+                logger.warning(f"CV feasibility violation: {b}")
+            msg = (
+                f"FEASIBILITY ERROR: {len(era_bad)} Accenture bullet(s) use AI/LLM/Copilot/"
+                f"AI-Governance terms. Accenture role ran Nov 2022–Feb 2025 (pre-corporate-LLM era) — "
+                f"these claims are a timeline mismatch a recruiter will catch instantly.\n"
+                + "\n".join(f"  • {b}" for b in era_bad)
+                + "\n\nFix: rewrite each affected Accenture bullet WITHOUT any AI/ML/LLM/Copilot/"
+                "AI-Governance reference. Use insurance ops / Python (Pandas) / SQL / Power BI / "
+                "Excel automation / SLA monitoring / documentation / data-quality framing instead. "
+                "AI/LLM claims are permitted ONLY on Chintamani bullets (Mar 2025+)."
+            )
+            return ("pre_fail", msg, None)
+
+        content, ev = await self._humanize_and_pick_best_cv(job.job_id, jd, content)
+        return ("ok", content, ev)
+
     async def _cv_loop(self, job, jd: str, jd_keywords: list | None = None):
         """
         Generate → Humanize → Evaluate loop for the CV.
-        Retries up to _MAX_RETRIES times when ATS score < config.ATS_SCORE_TARGET or banned words
-        are found.  Bullet-label failures short-circuit to the next attempt before
-        humanisation.  Always returns the best (highest ATS) result seen.
+
+        First attempt runs CV_BEST_OF_N candidates in parallel; retries are
+        sequential (they depend on the previous attempt's feedback).
         """
         best_content, best_eval = None, None
         feedback = ""
+        n_first = max(1, getattr(config, "CV_BEST_OF_N", 1))
 
         for attempt in range(_MAX_RETRIES + 1):
-            try:
-                content = await self.generator.generate_cv_content(
-                    job, feedback=feedback, jd_keywords=jd_keywords
-                )
-            except Exception as exc:
-                action = "retrying" if attempt < _MAX_RETRIES else "giving up"
-                logger.warning(
-                    f"CV generation attempt {attempt + 1} raised {type(exc).__name__}: {exc} — {action}"
-                )
-                if attempt < _MAX_RETRIES:
-                    # Reset feedback on parse errors — bad feedback may have caused the failure
-                    if isinstance(exc, (ValueError, json.JSONDecodeError)):
-                        feedback = ""
-                        logger.warning("CV feedback cleared after parse error to avoid context overflow.")
-                    continue
-                raise
+            parallel = n_first if (attempt == 0 and not feedback) else 1
+            if parallel > 1:
+                logger.info(f"CV best-of-{parallel} on attempt {attempt + 1}")
 
-            # Natural-bullet format: no label prefix expected. Bullet structure is
-            # validated by word-count + ATS evaluator downstream.
+            results = await asyncio.gather(
+                *[self._cv_one_candidate(job, jd, feedback, jd_keywords) for _ in range(parallel)],
+                return_exceptions=False,
+            )
 
-            # Word count check — short-circuit if any section exceeds its 2-page cap
-            over_limit = _check_cv_word_counts(content)
-            if over_limit:
-                for v in over_limit:
-                    logger.warning(f"CV word-count violation (attempt {attempt + 1}): {v}")
-                if attempt < _MAX_RETRIES:
-                    count_msg = (
-                        f"2-PAGE OVERFLOW: {len(over_limit)} section(s) exceed their word limits.\n"
-                        + "\n".join(f"  • {v}" for v in over_limit)
-                        + "\nTrim each section to its cap — the CV must fit in 2 pages."
-                    )
-                    feedback = count_msg + ("\n\n" + feedback if feedback else "")
-                    feedback = feedback[:_FEEDBACK_MAX_CHARS]
-                    logger.warning(f"CV word-count check failed ({len(over_limit)} violations) — retry {attempt + 1}/{_MAX_RETRIES}")
-                    continue  # skip humanise/evaluate; go straight to next attempt
+            pre_fail_feedback: str | None = None
+            last_error: Exception | None = None
+            attempt_best_eval = None
 
-            # Feasibility check — Accenture (Nov 2022–Feb 2025) cannot claim AI/LLM work.
-            era_bad = _check_accenture_feasibility(content)
-            if era_bad:
-                for b in era_bad:
-                    logger.warning(f"CV feasibility violation (attempt {attempt + 1}): {b}")
-                if attempt < _MAX_RETRIES:
-                    era_msg = (
-                        f"FEASIBILITY ERROR: {len(era_bad)} Accenture bullet(s) use AI/LLM/Copilot/"
-                        f"AI-Governance terms. Accenture role ran Nov 2022–Feb 2025 (pre-corporate-LLM era) — "
-                        f"these claims are a timeline mismatch a recruiter will catch instantly.\n"
-                        + "\n".join(f"  • {b}" for b in era_bad)
-                        + "\n\nFix: rewrite each affected Accenture bullet WITHOUT any AI/ML/LLM/Copilot/"
-                        "AI-Governance reference. Use insurance ops / Python (Pandas) / SQL / Power BI / "
-                        "Excel automation / SLA monitoring / documentation / data-quality framing instead. "
-                        "AI/LLM claims are permitted ONLY on Chintamani bullets (Mar 2025+)."
-                    )
-                    feedback = era_msg + ("\n\n" + feedback if feedback else "")
-                    feedback = feedback[:_FEEDBACK_MAX_CHARS]
+            for status, payload, ev in results:
+                if status == "error":
+                    last_error = payload
                     logger.warning(
-                        f"CV feasibility check failed ({len(era_bad)} bad) — retry {attempt + 1}/{_MAX_RETRIES}"
+                        f"CV generation candidate raised {type(payload).__name__}: {payload}"
                     )
-                    continue  # skip humanise/evaluate; regenerate
+                    continue
+                if status == "pre_fail":
+                    if pre_fail_feedback is None:
+                        pre_fail_feedback = payload
+                    continue
+                if best_eval is None or _better_eval(ev, best_eval):
+                    best_content, best_eval = payload, ev
+                if attempt_best_eval is None or _better_eval(ev, attempt_best_eval):
+                    attempt_best_eval = ev
 
-            if config.HUMANIZE_ENABLED:
-                content = await self._humanizer.humanize_cv(job.job_id, content)
-            else:
-                logger.info("CV humanizer skipped (disabled via /humanize)")
-            ev = await self._evaluator.evaluate_cv(job.job_id, jd, content)
+            if best_eval is None:
+                # Every candidate failed pre-checks or errored.
+                if attempt == _MAX_RETRIES:
+                    if last_error is not None:
+                        raise last_error
+                    raise RuntimeError("CV generation produced no evaluable candidates")
+                if last_error is not None and isinstance(last_error, (ValueError, json.JSONDecodeError)):
+                    feedback = ""
+                    logger.warning("CV feedback cleared after parse error to avoid context overflow.")
+                elif pre_fail_feedback:
+                    feedback = (pre_fail_feedback + ("\n\n" + feedback if feedback else ""))[:_FEEDBACK_MAX_CHARS]
+                continue
 
-            if best_eval is None or _better_eval(ev, best_eval):
-                best_content, best_eval = content, ev
-
-            passes = ev.ats_score >= config.ATS_SCORE_TARGET and not ev.banned_words_found
+            passes = (
+                best_eval.ats_score >= config.ATS_SCORE_TARGET
+                and not best_eval.banned_words_found
+            )
             if passes or attempt == _MAX_RETRIES:
                 break
 
             logger.warning(
-                f"CV ATS={ev.ats_score} < {config.ATS_SCORE_TARGET} "
-                f"(banned={ev.banned_words_found or 'none'}) — "
+                f"CV ATS={attempt_best_eval.ats_score} < {config.ATS_SCORE_TARGET} "
+                f"(banned={attempt_best_eval.banned_words_found or 'none'}) — "
                 f"retry {attempt + 1}/{_MAX_RETRIES} for {job.title} @ {job.company}"
             )
-            feedback = ev.feedback_block()
-            feedback = feedback[:_FEEDBACK_MAX_CHARS]
+            feedback = attempt_best_eval.feedback_block()[:_FEEDBACK_MAX_CHARS]
 
         logger.info(
             f"CV final: ATS={best_eval.ats_score} | missing={len(best_eval.missing_keywords)} | "
@@ -763,79 +811,151 @@ class DocumentPipeline:
         )
         return best_content, best_eval
 
+    def _cl_structural_issues(self, content: dict) -> List[str]:
+        """Return paragraph-ending + opener issues for a CL candidate (empty = clean)."""
+        issues: List[str] = []
+        issues.extend(_check_paragraph_endings(content))
+        opener = _check_para1_opening(content)
+        if opener:
+            issues.append(opener)
+        return issues
+
+    async def _humanize_and_pick_best_cl(self, job_id: str, jd: str, raw_content: dict):
+        """
+        Evaluate raw + humanized in parallel; return whichever wins.
+        Prefer structurally-clean candidates first; then _better_eval.
+        Falls back to raw if humanizer breaks paragraph endings, banned openers,
+        introduces banned words, or drops ATS.
+        """
+        if not config.HUMANIZE_ENABLED:
+            logger.info("CL humanizer skipped (disabled via /humanize)")
+            ev = await self._evaluator.evaluate_cl(job_id, jd, raw_content)
+            return raw_content, ev
+
+        humanized = await self._humanizer.humanize_cl(job_id, raw_content)
+        raw_eval, hum_eval = await asyncio.gather(
+            self._evaluator.evaluate_cl(job_id, jd, raw_content),
+            self._evaluator.evaluate_cl(job_id, jd, humanized),
+        )
+
+        raw_clean = not self._cl_structural_issues(raw_content)
+        hum_clean = not self._cl_structural_issues(humanized)
+        if hum_clean and not raw_clean:
+            return humanized, hum_eval
+        if raw_clean and not hum_clean:
+            logger.warning("CL humanizer broke structure (dangling/banned opener) — falling back to raw")
+            return raw_content, raw_eval
+
+        if _better_eval(hum_eval, raw_eval):
+            return humanized, hum_eval
+        logger.warning(
+            f"CL humanizer degraded quality (raw ATS={raw_eval.ats_score} banned={raw_eval.banned_words_found or 'none'} "
+            f"vs humanized ATS={hum_eval.ats_score} banned={hum_eval.banned_words_found or 'none'}) — falling back to raw"
+        )
+        return raw_content, raw_eval
+
+    async def _cl_one_candidate(self, job, jd: str, application_notes: str, feedback: str,
+                                 jd_keywords: list | None, cv_content: dict | None, company_fact: str):
+        """
+        Produce one CL candidate.
+        Returns ('ok', content, eval), ('struct_fail', feedback_msg, None), or ('error', exc, None).
+        """
+        try:
+            raw = await self.generator.generate_cl_content(
+                job, application_notes=application_notes, feedback=feedback,
+                jd_keywords=jd_keywords, cv_content=cv_content,
+                company_fact=company_fact,
+            )
+        except Exception as exc:
+            return ("error", exc, None)
+
+        content, ev = await self._humanize_and_pick_best_cl(job.job_id, jd, raw)
+
+        structural_issues = self._cl_structural_issues(content)
+        if structural_issues:
+            for issue in structural_issues:
+                logger.warning(f"CL structural issue: {issue}")
+            msg = (
+                "STRUCTURAL ERRORS — fix every one before outputting:\n"
+                + "\n".join(f"  • {i}" for i in structural_issues)
+                + "\n\nReminders:\n"
+                "  - Every paragraph MUST end with a complete sentence (period). No dangling 'The ', 'A ', 'and '.\n"
+                "  - Para 1 MUST open with a concrete moment from YOUR work — banned: 'X sits at the intersection',\n"
+                "    'Few companies operate at the scale', 'I am writing/excited/thrilled', 'X is a leader in'.\n"
+            )
+            return ("struct_fail", msg, None)
+
+        return ("ok", content, ev)
+
     async def _cl_loop(self, job, jd: str, application_notes: str, jd_keywords: list | None = None, cv_content: dict | None = None, company_fact: str = ""):
         """
         Generate → Humanize → Evaluate loop for the Cover Letter.
-        Mirrors _cv_loop: retries with evaluator feedback until score >= config.ATS_SCORE_TARGET
-        or retries are exhausted; always keeps the best result seen.
-        cv_content is the already-generated CV so the CL can reference its bullets.
+
+        First attempt runs CL_BEST_OF_N candidates in parallel; retries are
+        sequential (they depend on the previous attempt's feedback).
         """
         best_content, best_eval = None, None
         feedback = ""
+        n_first = max(1, getattr(config, "CL_BEST_OF_N", 1))
 
         for attempt in range(_MAX_RETRIES + 1):
-            try:
-                content = await self.generator.generate_cl_content(
-                    job, application_notes=application_notes, feedback=feedback,
-                    jd_keywords=jd_keywords, cv_content=cv_content,
-                    company_fact=company_fact,
-                )
-            except Exception as exc:
-                action = "retrying" if attempt < _MAX_RETRIES else "giving up"
-                logger.warning(
-                    f"CL generation attempt {attempt + 1} raised {type(exc).__name__}: {exc} — {action}"
-                )
-                if attempt < _MAX_RETRIES:
-                    if isinstance(exc, (ValueError, json.JSONDecodeError)):
-                        feedback = ""
-                        logger.warning("CL feedback cleared after parse error to avoid context overflow.")
+            parallel = n_first if (attempt == 0 and not feedback) else 1
+            if parallel > 1:
+                logger.info(f"CL best-of-{parallel} on attempt {attempt + 1}")
+
+            results = await asyncio.gather(
+                *[self._cl_one_candidate(
+                    job, jd, application_notes, feedback,
+                    jd_keywords, cv_content, company_fact,
+                ) for _ in range(parallel)],
+                return_exceptions=False,
+            )
+
+            struct_fail_feedback: str | None = None
+            last_error: Exception | None = None
+            attempt_best_eval = None
+
+            for status, payload, ev in results:
+                if status == "error":
+                    last_error = payload
+                    logger.warning(
+                        f"CL generation candidate raised {type(payload).__name__}: {payload}"
+                    )
                     continue
-                raise
-            if config.HUMANIZE_ENABLED:
-                content = await self._humanizer.humanize_cl(job.job_id, content)
-            else:
-                logger.info("CL humanizer skipped (disabled via /humanize)")
+                if status == "struct_fail":
+                    if struct_fail_feedback is None:
+                        struct_fail_feedback = payload
+                    continue
+                if best_eval is None or _better_eval(ev, best_eval):
+                    best_content, best_eval = payload, ev
+                if attempt_best_eval is None or _better_eval(ev, attempt_best_eval):
+                    attempt_best_eval = ev
 
-            # Structural checks BEFORE evaluator — catches truncations + banned openers.
-            structural_issues: List[str] = []
-            dangling = _check_paragraph_endings(content)
-            if dangling:
-                structural_issues.extend(dangling)
-            opener_warn = _check_para1_opening(content)
-            if opener_warn:
-                structural_issues.append(opener_warn)
-            if structural_issues and attempt < _MAX_RETRIES:
-                for issue in structural_issues:
-                    logger.warning(f"CL structural issue (attempt {attempt + 1}): {issue}")
-                feedback = (
-                    "STRUCTURAL ERRORS — fix every one before outputting:\n"
-                    + "\n".join(f"  • {i}" for i in structural_issues)
-                    + "\n\nReminders:\n"
-                    "  - Every paragraph MUST end with a complete sentence (period). No dangling 'The ', 'A ', 'and '.\n"
-                    "  - Para 1 MUST open with a concrete moment from YOUR work — banned: 'X sits at the intersection',\n"
-                    "    'Few companies operate at the scale', 'I am writing/excited/thrilled', 'X is a leader in'.\n"
-                )
-                feedback = feedback[:_FEEDBACK_MAX_CHARS]
-                continue  # skip evaluation; regenerate with explicit fix-it feedback
+            if best_eval is None:
+                if attempt == _MAX_RETRIES:
+                    if last_error is not None:
+                        raise last_error
+                    raise RuntimeError("CL generation produced no evaluable candidates")
+                if last_error is not None and isinstance(last_error, (ValueError, json.JSONDecodeError)):
+                    feedback = ""
+                    logger.warning("CL feedback cleared after parse error to avoid context overflow.")
+                elif struct_fail_feedback:
+                    feedback = struct_fail_feedback[:_FEEDBACK_MAX_CHARS]
+                continue
 
-            ev = await self._evaluator.evaluate_cl(job.job_id, jd, content)
-
-            # Ranking: prefer (no banned words) over (banned words), then higher ATS.
-            # Avoids shipping a higher-ATS result that still contains banned filler.
-            if best_eval is None or _better_eval(ev, best_eval):
-                best_content, best_eval = content, ev
-
-            passes = ev.ats_score >= config.ATS_SCORE_TARGET and not ev.banned_words_found
+            passes = (
+                best_eval.ats_score >= config.ATS_SCORE_TARGET
+                and not best_eval.banned_words_found
+            )
             if passes or attempt == _MAX_RETRIES:
                 break
 
             logger.warning(
-                f"CL ATS={ev.ats_score} < {config.ATS_SCORE_TARGET} "
-                f"(banned={ev.banned_words_found or 'none'}) — "
+                f"CL ATS={attempt_best_eval.ats_score} < {config.ATS_SCORE_TARGET} "
+                f"(banned={attempt_best_eval.banned_words_found or 'none'}) — "
                 f"retry {attempt + 1}/{_MAX_RETRIES} for {job.title} @ {job.company}"
             )
-            feedback = ev.feedback_block()
-            feedback = feedback[:_FEEDBACK_MAX_CHARS]
+            feedback = attempt_best_eval.feedback_block()[:_FEEDBACK_MAX_CHARS]
 
         logger.info(
             f"CL final: ATS={best_eval.ats_score} | missing={len(best_eval.missing_keywords)} | "

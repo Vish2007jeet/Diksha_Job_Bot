@@ -22,6 +22,7 @@ from telegram.ext import (
 import config
 from bot.keyboards import (
     ats_threshold_keyboard,
+    bestof_keyboard,
     cancel_keyboard,
     confirm_apply_keyboard,
     humanize_keyboard,
@@ -91,6 +92,7 @@ class BotHandlers:
             "/threshold — View or set the minimum relevance score (1–10)\n"
             "/ats — View or set the CV ATS target score (0–100, default 80)\n"
             "/humanize — Toggle the Haiku rewriter on/off for CV + CL\n"
+            "/bestof — Set best-of-N (1–5) for CV + CL first-attempt generation\n"
             "/status — Bot stats and config summary\n"
             "/scrapers — Per-scraper last-run, jobs found, error rate\n"
             "/stats — Application funnel: applied → responses → interviews\n"
@@ -589,6 +591,32 @@ class BotHandlers:
         await update.message.reply_html(
             self._ats_text(config.ATS_SCORE_TARGET),
             reply_markup=ats_threshold_keyboard(config.ATS_SCORE_TARGET),
+        )
+
+    # ── /bestof ────────────────────────────────────────────────
+
+    @staticmethod
+    def _bestof_text(cv_n: int, cl_n: int) -> str:
+        extra_cv = cv_n - 1
+        extra_cl = cl_n - 1
+        return (
+            f"🎲 <b>Best-of-N Generation</b>\n\n"
+            f"CV: <b>{cv_n}</b> candidate(s)  •  CL: <b>{cl_n}</b> candidate(s)\n\n"
+            f"On the first attempt the bot generates N candidates in parallel and "
+            f"ships the best (no banned words → higher ATS).\n"
+            f"Retries after a failed attempt always run 1-at-a-time with feedback.\n\n"
+            f"<b>Cost impact on first attempt only:</b>\n"
+            f"  CV: +{extra_cv} generate + {extra_cv} ATS check\n"
+            f"  CL: +{extra_cl} generate + {extra_cl} ATS check\n\n"
+            f"Tap a value to switch."
+        )
+
+    async def cmd_bestof(self, update: Update, _ctx: ContextTypes.DEFAULT_TYPE) -> None:
+        if update.effective_chat.id != config.TELEGRAM_CHAT_ID:
+            return
+        await update.message.reply_html(
+            self._bestof_text(config.CV_BEST_OF_N, config.CL_BEST_OF_N),
+            reply_markup=bestof_keyboard(config.CV_BEST_OF_N, config.CL_BEST_OF_N),
         )
 
     async def cmd_stop(self, update: Update, _ctx: ContextTypes.DEFAULT_TYPE) -> None:
@@ -1201,6 +1229,27 @@ class BotHandlers:
                     self._ats_text(config.ATS_SCORE_TARGET),
                     parse_mode="HTML",
                     reply_markup=ats_threshold_keyboard(config.ATS_SCORE_TARGET),
+                )
+            except Exception:
+                pass
+            return
+
+        # ── best-of-N inline buttons ───────────────────────────────
+        if data.startswith("bestof:"):
+            from utils.bot_settings import bot_settings
+            action = data.split(":", 1)[1]
+            if action == "noop":
+                return
+            doc, _, val = action.partition(":")
+            if doc not in ("cv", "cl") or not val.isdigit():
+                return
+            new_n = max(1, min(int(val), 5))
+            bot_settings.set(f"{doc}_best_of_n", new_n)
+            try:
+                await query.edit_message_text(
+                    self._bestof_text(config.CV_BEST_OF_N, config.CL_BEST_OF_N),
+                    parse_mode="HTML",
+                    reply_markup=bestof_keyboard(config.CV_BEST_OF_N, config.CL_BEST_OF_N),
                 )
             except Exception:
                 pass
@@ -2007,6 +2056,7 @@ def build_handlers(handlers: BotHandlers):
         (CommandHandler("threshold",    handlers.cmd_threshold),    0),
         (CommandHandler("ats",          handlers.cmd_ats_threshold),0),
         (CommandHandler("humanize",     handlers.cmd_humanize),     0),
+        (CommandHandler("bestof",       handlers.cmd_bestof),       0),
         (CommandHandler("health",       handlers.cmd_health),       0),
         (CommandHandler("jobs",         handlers.cmd_jobs),         0),
         (CommandHandler("saved",        handlers.cmd_saved),        0),

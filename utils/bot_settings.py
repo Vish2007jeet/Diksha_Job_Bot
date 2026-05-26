@@ -22,6 +22,11 @@ _SETTINGS_FILE = Path(__file__).parent.parent / "data" / "bot_settings.json"
 _DEFAULTS: dict[str, Any] = {
     "humanize_enabled": True,
     "ats_score_target": 80,
+    # Best-of-N: on the first generation attempt, generate N candidates in
+    # parallel and ship the best (by _better_eval). 1 = legacy single-shot.
+    # 3 ≈ +2× generate cost on the first attempt for measurably better output.
+    "cv_best_of_n": 1,
+    "cl_best_of_n": 1,
 }
 
 

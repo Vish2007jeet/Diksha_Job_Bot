@@ -140,6 +140,20 @@ def scrapers_keyboard(enabled_map: dict) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(rows)
 
 
+def bestof_keyboard(cv_n: int, cl_n: int) -> InlineKeyboardMarkup:
+    """Two rows of 1–5 buttons — CV and CL best-of-N selectors."""
+    presets = [1, 2, 3, 4, 5]
+    cv_row = [InlineKeyboardButton("CV", callback_data="bestof:noop")] + [
+        InlineKeyboardButton(f"{'→' if v == cv_n else ''}{v}", callback_data=f"bestof:cv:{v}")
+        for v in presets
+    ]
+    cl_row = [InlineKeyboardButton("CL", callback_data="bestof:noop")] + [
+        InlineKeyboardButton(f"{'→' if v == cl_n else ''}{v}", callback_data=f"bestof:cl:{v}")
+        for v in presets
+    ]
+    return InlineKeyboardMarkup([cv_row, cl_row])
+
+
 def humanize_keyboard(enabled: bool) -> InlineKeyboardMarkup:
     """Single toggle button for /humanize."""
     if enabled:

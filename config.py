@@ -189,6 +189,8 @@ def _load_bot_setting(key: str, default):
 
 HUMANIZE_ENABLED: bool = bool(_load_bot_setting("humanize_enabled", True))
 ATS_SCORE_TARGET: int  = int(_load_bot_setting("ats_score_target", 80))
+CV_BEST_OF_N: int      = max(1, int(_load_bot_setting("cv_best_of_n", 1)))
+CL_BEST_OF_N: int      = max(1, int(_load_bot_setting("cl_best_of_n", 1)))
 
 # ── Google Sheets ─────────────────────────────────────────────
 _google = _cfg.get("google", {})

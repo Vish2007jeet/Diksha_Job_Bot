@@ -778,9 +778,11 @@ class DocumentPipeline:
                 if attempt_best_eval is None or _better_eval(ev, attempt_best_eval):
                     attempt_best_eval = ev
 
-            if best_eval is None:
-                # Every candidate failed pre-checks or errored.
+            if attempt_best_eval is None:
+                # This attempt produced no evaluable candidates (all pre_fail or error).
                 if attempt == _MAX_RETRIES:
+                    if best_eval is not None:
+                        break  # ship the best from a prior attempt
                     if last_error is not None:
                         raise last_error
                     raise RuntimeError("CV generation produced no evaluable candidates")
@@ -931,8 +933,11 @@ class DocumentPipeline:
                 if attempt_best_eval is None or _better_eval(ev, attempt_best_eval):
                     attempt_best_eval = ev
 
-            if best_eval is None:
+            if attempt_best_eval is None:
+                # This attempt produced no evaluable candidates (all struct_fail or error).
                 if attempt == _MAX_RETRIES:
+                    if best_eval is not None:
+                        break  # ship the best from a prior attempt
                     if last_error is not None:
                         raise last_error
                     raise RuntimeError("CL generation produced no evaluable candidates")

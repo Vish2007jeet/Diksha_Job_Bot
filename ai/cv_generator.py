@@ -186,14 +186,23 @@ def _build_cv_system() -> str:
         "        5-analyst team, 3 client accounts, 6 hours → 45 min, 12–18% improvements.\n"
         "    NOT OK: millions of records, 50+ direct reports, cross-continent rollouts, multi-million-€ P&L,\n"
         "        company-wide transformations, founding a function from scratch.\n\n"
-        "  TOOL TEST — only claim tools from the KEY TOOLS list in the profile. Variants of the same tool\n"
-        "    (Power BI / Power Query / Power Automate / Excel VBA / SAP FI/CO / Python / Pandas / SQL / MS365)\n"
-        "    are fine. Do NOT invent adjacent tools the profile does not list (R, Tableau projects, Looker,\n"
-        "    Snowflake, Databricks, Kubernetes, AWS/Azure pipelines, dbt, Airflow).\n\n"
+        "  TOOL TEST — PRIMARY tools (Power BI, Python/Pandas, SQL, Excel VBA/Power Query, SAP FI/CO,\n"
+        "    Power Automate, MS365, Tableau) may be claimed with direct ownership language.\n"
+        "    ADJACENT tools named in the JD (e.g. Azure, Looker, R, Snowflake, JIRA, Confluence,\n"
+        "    MicroStrategy, Qlik, Google Data Studio, dbt, Power Apps) — CREATE a brief, plausible\n"
+        "    exposure experience using framing such as:\n"
+        "      'supported reporting workflows that fed into Azure pipelines'\n"
+        "      'gained exposure to Looker dashboards while consolidating BI outputs'\n"
+        "      'contributed to JIRA-tracked sprint reviews for the analytics team'\n"
+        "    Keep the claim believable for role level and timeline. A 1–2 word mention in Core\n"
+        "    Competencies backed by a phrase in one bullet is sufficient to pass ATS without overstating.\n"
+        "    NEVER claim architectural ownership of adjacent tools ('built a Snowflake warehouse',\n"
+        "    'architected Azure data lakehouse') — only contribution/exposure language.\n\n"
         "  FRAMING for stretch claims (adjacent skills the candidate has plausibly seen but not formally owned):\n"
         "    Use exposure-language: 'supported X reporting that fed Y', 'contributed to Z workflows',\n"
-        "    'assisted senior team with W'. The candidate can confidently elaborate on any such claim because\n"
-        "    the framing already signals contribution rather than ownership.\n\n"
+        "    'assisted senior team with W', 'gained exposure to Z during X project'.\n"
+        "    The candidate can confidently elaborate on any such claim because the framing already\n"
+        "    signals contribution rather than ownership.\n\n"
         "  PROFILE SUMMARY rule — must be a real description of the person, not a tools list:\n"
         "    Sentence 1: LEAD with the 3 years of work experience (insurance ops at Accenture + procurement\n"
         "      analytics at Chintamani). The MSc is supporting context, NOT the opener — she started March 2026.\n"
@@ -219,14 +228,20 @@ def _build_cv_system() -> str:
         "    German Language Proficiency, Communication Materials (vague), Soft Skills, Hard Skills,\n"
         "    Team Player, Self-Motivated, Detail-Oriented, Fast Learner, Can-Do Attitude, Growth Mindset.\n"
         "    If the JD mentions these, simply skip them in Competencies — they reduce credibility.\n\n"
-        "  STRETCH-CLAIM framing for adjacent skills (AI Governance, Risk Mgmt, Compliance, ML Ops, etc.):\n"
-        "    The candidate has procurement governance + insurance ops reporting experience. Adjacent claims\n"
-        "    MUST use exposure-language in bullets and CL: 'exposure to', 'supported reporting that fed',\n"
-        "    'contributed to documentation for', 'familiar with through procurement governance work'.\n"
-        "    NEVER state stretch skills as direct ownership: not 'AI Governance specialist',\n"
-        "    not 'led compliance reviews', not 'designed risk frameworks'.\n"
-        "    A stretch claim in Core Competencies is OK only if at least one bullet (or CL para) backs it\n"
-        "    with exposure-language — otherwise drop it from Competencies too.\n\n"
+        "  STRETCH-CLAIM framing for adjacent skills (AI Governance, Risk Mgmt, Compliance, ML Ops,\n"
+        "    adjacent BI tools, cloud platforms, project tools, etc.):\n"
+        "    The candidate has procurement governance + insurance ops reporting experience. For any JD\n"
+        "    requirement not directly covered by core experience, CREATE a plausible exposure story:\n"
+        "      • Risk Mgmt / Compliance → 'contributed to SLA compliance documentation'\n"
+        "      • Azure / Cloud → 'supported reporting pipelines that fed into Azure-hosted dashboards'\n"
+        "      • JIRA / Confluence → 'tracked sprint deliverables in JIRA during cross-functional projects'\n"
+        "      • Agile / Scrum → 'participated in bi-weekly sprint reviews as reporting analyst'\n"
+        "      • Looker / Qlik / MicroStrategy → 'gained exposure to [tool] outputs during BI consolidation'\n"
+        "    ALWAYS use exposure-language: 'exposure to', 'supported reporting that fed', 'contributed to',\n"
+        "    'participated in', 'gained experience with'. NEVER direct ownership: not 'designed', not 'led',\n"
+        "    not 'architected', not 'owned end-to-end'.\n"
+        "    A stretch claim in Core Competencies MUST be backed by at least one phrase in a bullet or CL\n"
+        "    using the framing above — never list a tool in Competencies with zero supporting context.\n\n"
         "SECTION ORDER: Summary → Core Competencies → Professional Experience → Projects → Education → Technical Skills\n\n"
         "━━━ EDUCATION RENDERING — mandatory, prevents date-overlap suspicion ━━━\n"
         "  The PGDM at Welingkar (Sept 2023 – Aug 2025) overlaps with full-time work at Accenture\n"
@@ -355,10 +370,14 @@ def _build_cl_system() -> str:
         "    Chintamani as Assistant Manager allows 'coordinated / built / delivered / presented to senior mgmt'.\n"
         "  SCOPE: 50k records, 6 supplier categories, 5-analyst team, 3 client accounts — believable.\n"
         "    NOT believable: millions of records, 50+ reports, company-wide transformations, multi-million-€ P&L.\n"
-        "  TOOLS: only use tools listed in the profile (Power BI, Python/Pandas, SQL, Excel VBA/Power Query,\n"
-        "    SAP FI/CO, Power Automate, MS365, Tableau). Do NOT invent R, Snowflake, Databricks, dbt, AWS, etc.\n"
-        "  FRAMING for adjacent/stretch skills: use 'supported X', 'contributed to Y', 'exposure to Z' —\n"
-        "    NEVER 'owned', 'built from scratch single-handedly', 'transformed company-wide'.\n\n"
+        "  TOOLS: Primary tools (Power BI, Python/Pandas, SQL, Excel VBA/Power Query, SAP FI/CO,\n"
+        "    Power Automate, MS365, Tableau) may be claimed directly.\n"
+        "    Adjacent JD tools (Azure, Looker, R, JIRA, Confluence, Qlik, Snowflake, dbt, Power Apps, etc.)\n"
+        "    → create a brief plausible exposure mention: 'supported pipelines feeding into Azure',\n"
+        "    'gained exposure to Looker during BI consolidation', 'tracked work in JIRA'.\n"
+        "    NEVER claim architectural ownership of adjacent tools — contribution/exposure language only.\n"
+        "  FRAMING for adjacent/stretch skills: use 'supported X', 'contributed to Y', 'exposure to Z',\n"
+        "    'gained experience with Z through X project' — NEVER 'owned', 'built from scratch', 'transformed company-wide'.\n\n"
         "━━━ INLINE BOLD HIGHLIGHTING — make 3–6 JD keywords pop in the body ━━━\n"
         "  Wrap with **double asterisks** to render BOLD in the DOCX:\n"
         "    - Company name (e.g. **Allianz**) on its 1st and 2nd mention in the body — already required.\n"
@@ -404,8 +423,14 @@ STRICT RULES — follow exactly, never do extra, never do less:
    — Plain prose, written the way a real recruiter expects to read a CV.
    — HARD CAP per bullet: ≤ 30 words.
 4. JD-keyword bold pulses: 1–2 per bullet maximum; bold a keyword only on its FIRST occurrence per section; total bold spans across the whole CV between 10 and 15 (never above 18).
-5. Distribute ATS keywords across ALL sections: summary, Core Competencies, bullets, project descriptions.
-   Keywords may appear in both Core Competencies AND a bullet if they are central to the role.
+5. ZERO-GAP ATS COVERAGE — every single keyword from the MANDATORY ATS list must appear verbatim
+   in the final CV. No exceptions. Priority order:
+     a) Core skill → embed naturally in a bullet or summary.
+     b) Adjacent tool with limited exposure → add to Core Competencies AND include a phrase in one
+        bullet ("supported workflows involving [tool]", "gained exposure to [tool] during X").
+     c) Methodology/domain with no direct ownership → list in Core Competencies alongside the closest
+        real experience (e.g. "Agile Reporting" if you used sprint boards).
+   Leaving any MANDATORY keyword uncovered is a hard failure — find a plausible home for every one.
 6. Metrics: use a metric wherever it makes the bullet stronger and stays realistic for this profile (5–30% range, minutes/hours saved, thousands of records).
    Do not force a number into every bullet — concrete qualitative outcomes are equally strong.
    Keep all values believable for 2–3 years experience in ops/analytics at Accenture + Chintamani level.
@@ -489,7 +514,7 @@ FEASIBILITY LAW (every claim must be defensible in interview):
 - ZERO TOLERANCE: ChatGPT/Claude/Gemini/Copilot/LLM/RAG/AI-Governance/Prompt-Engineering/internal-AI-tool claims belong to Chintamani ONLY — never Accenture, not even as "exposure" or "research on" or "documentation of".
 - Accenture verbs: supported / contributed to / assisted with / analysed. Chintamani verbs: coordinated / built / delivered / presented.
 - Numbers in the 5–30% / minutes-hours / thousands-of-records / 3–6 categories range — never millions of records or company-wide rollouts.
-- Only use tools from the profile (Power BI, Python/Pandas, SQL, Excel VBA/Power Query, SAP FI/CO, Power Automate, Tableau, MS365). Do NOT invent R, Snowflake, Databricks, AWS, dbt, etc.
+- Primary tools (Power BI, Python/Pandas, SQL, Excel VBA/Power Query, SAP FI/CO, Power Automate, Tableau, MS365) may be claimed directly. For adjacent JD tools (Azure, Looker, R, JIRA, Qlik, Snowflake, dbt, etc.), create a brief plausible exposure mention — never claim architectural ownership, only contribution/exposure language.
 
 Respond with this exact JSON schema (no extra keys, no missing keys):
 {{
@@ -545,10 +570,15 @@ class CVGenerator:
         if jd_keywords:
             kw_block = (
                 f"\n\n{'='*50}\n"
-                "MANDATORY ATS KEYWORDS — embed every item from this list verbatim (exact spelling/casing).\n"
-                "Distribute across: summary, Core Competencies, bullet descriptions, and project descriptions.\n"
-                "Core Competencies is your primary coverage layer — list ALL tools/skills from this list not\n"
-                "already used prominently in bullets.\n"
+                "MANDATORY ATS KEYWORDS — every item below MUST appear verbatim (exact spelling/casing) in the CV.\n"
+                "Zero gaps allowed. For each keyword:\n"
+                "  • If it is a skill you own → embed naturally in a bullet, summary, or Core Competencies.\n"
+                "  • If it is a tool you have limited exposure to → add to Core Competencies AND place a\n"
+                "    brief qualifying phrase in one bullet ('supported workflows involving X', 'gained exposure\n"
+                "    to X during Y project', 'contributed to X-tracked deliverables').\n"
+                "  • If it is a methodology/domain term → list in Core Competencies and connect it to the\n"
+                "    closest real experience you have.\n"
+                "Do NOT skip any keyword because it feels like a stretch — create a plausible mention.\n"
                 f"{chr(10).join(f'  • {k}' for k in jd_keywords)}\n"
                 f"{'='*50}\n"
             )
@@ -636,8 +666,11 @@ class CVGenerator:
         if jd_keywords:
             kw_block = (
                 f"\n\n{'='*50}\n"
-                "MANDATORY ATS KEYWORDS — weave as many of these as naturally fit into the letter.\n"
-                "Prioritise the first 10 items. Each keyword must appear verbatim (exact spelling/casing).\n"
+                "MANDATORY ATS KEYWORDS — every keyword below must appear verbatim (exact spelling/casing).\n"
+                "For core skills: weave naturally into experience descriptions.\n"
+                "For adjacent tools not in your primary toolkit: include a brief exposure phrase\n"
+                "  ('gained experience with X', 'contributed to workflows involving X').\n"
+                "Do NOT skip any keyword — zero gaps allowed.\n"
                 f"{chr(10).join(f'  • {k}' for k in jd_keywords)}\n"
                 f"{'='*50}\n"
             )

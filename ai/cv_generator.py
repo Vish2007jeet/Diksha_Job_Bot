@@ -94,7 +94,7 @@ def _build_cv_system() -> str:
         f" You are writing for {config.USER_FULL_NAME}.\n\n"
         "PAGE LIMIT: Strict maximum 2 pages. Hard word limits per section — exceeding any limit will cause a page-3 overflow:\n"
         "  • Summary: ≤ 65 words\n"
-        "  • Core Competencies: ≤ 40 words\n"
+        "  • Core Competencies: no word cap — list every relevant JD tool and skill\n"
         "  • Each bullet: ≤ 30 words\n"
         "  • Project descriptions: ≤ 20 words each (enforced separately)\n"
         "Count your words before outputting. If any section exceeds its limit, cut words — do not summarise the limit away.\n\n"
@@ -418,7 +418,7 @@ Act as a 15+ year experienced ATS CV writer. The output must be practical, relat
 
 STRICT RULES — follow exactly, never do extra, never do less:
 1. Professional Summary: exactly ~60 words, keyword-rich, role-aligned to the JD. HARD CAP: ≤ 65 words. Bold 2–3 JD keywords inline using **double asterisks**. Count before outputting.
-2. Core Competencies: 35–40 word comma- or pipe-separated list of JD tools, methodologies, and domain skills. Bold every TOOL name inline using **double asterisks** (e.g. **Power BI**, **Python (Pandas)**, **SQL**, **SAP FI/CO**). Leave methodologies and domain terms unbold. HARD CAP: ≤ 40 words. Count before outputting.
+2. Core Competencies: comma- or pipe-separated list of ALL JD tools, methodologies, and domain skills — no word cap. Include every relevant keyword from the JD. Bold every TOOL name inline using **double asterisks** (e.g. **Power BI**, **Python (Pandas)**, **SQL**, **SAP FI/CO**). Leave methodologies and domain terms unbold.
 3. Each role: exactly 4 bullets. FORMAT: ONE complete sentence per bullet, action-verb led — no "Label:" prefix, no bold opener, no colon in the first 30 characters. Inline **bold** allowed ONLY for JD keywords mid-sentence.
    — Plain prose, written the way a real recruiter expects to read a CV.
    — HARD CAP per bullet: ≤ 30 words.
@@ -444,7 +444,7 @@ STRICT RULES — follow exactly, never do extra, never do less:
 Respond with this exact JSON schema (no extra keys, no missing keys):
 {{
   "summary": "<~60 word professional summary tailored to JD, with 2–3 inline **bold** JD keywords>",
-  "competencies": "<35–40 words. Bold every tool name with **double asterisks**. Example: '**Power BI** · **Python (Pandas)** · **SQL** · **Power Query** · **VBA** · **SAP FI/CO** · Financial Reporting · Variance Analysis · KPI Dashboards · Insurance Operations'>",
+  "competencies": "<All JD tools and skills, no word cap. Bold every tool with **double asterisks**. Example: '**Power BI** · **Python (Pandas)** · **SQL** · **Power Query** · **VBA** · **SAP FI/CO** · **Tableau** · Financial Reporting · Variance Analysis · KPI Dashboards · Data Governance · ETL · Data Modeling · SLA Management'>",
   "chintamani": [
     "One natural sentence led by a strong action verb, with 1–2 inline **bold** JD keywords, tailored to this JD.",
     "One natural sentence with a concrete qualitative outcome — specific, not vague. Inline **bold** only for the dominant JD tool/method.",

@@ -148,8 +148,7 @@ def _build_expense_report(job, tracker) -> str:
 # ── Word count validator (2-page guard) ───────────────────────
 
 _CV_WORD_LIMITS = {
-    "summary":     65,
-    "competencies": 40,
+    "summary": 65,
 }
 _BULLET_DESC_WORD_LIMIT = 30
 _PROJECT_DESC_WORD_LIMIT = 20

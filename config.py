@@ -207,67 +207,13 @@ GOOGLE_DRIVE_FOLDER_ID: str = _google.get("drive_folder_id") or os.getenv("GOOGL
 GWS_EXE: Path = BASE_DIR / "tools" / "gws.exe"   # googleworkspace/cli binary
 
 # ── Workday Career Sites ──────────────────────────────────────
-# api_url  : POST target for Workday job search API
-# career_url: base URL prepended to externalPath for job links
-WORKDAY_SITES: List[dict] = [
-    # myworkdaysite.com — verified working
-    {
-        "name": "Magna International",
-        "api_url": "https://wd3.myworkdaysite.com/wday/cxs/magna/Magna/jobs",
-        "career_url": "https://wd3.myworkdaysite.com/recruiting/magna/Magna",
-        "location": "Germany",
-    },
-    # myworkdayjobs.com — verified working
-    {
-        "name": "Valeo",
-        "api_url": "https://valeo.wd3.myworkdayjobs.com/wday/cxs/valeo/valeo_jobs/jobs",
-        "career_url": "https://valeo.wd3.myworkdayjobs.com/en-EN/valeo_jobs",
-        "location": "Germany",
-    },
-    {
-        "name": "BorgWarner",
-        "api_url": "https://borgwarner.wd5.myworkdayjobs.com/wday/cxs/borgwarner/BorgWarner_Careers/jobs",
-        "career_url": "https://borgwarner.wd5.myworkdayjobs.com/BorgWarner_Careers",
-        "location": "Germany",
-    },
-    {
-        "name": "Aptiv",
-        "api_url": "https://aptiv.wd5.myworkdayjobs.com/wday/cxs/aptiv/APTIV_CAREERS/jobs",
-        "career_url": "https://aptiv.wd5.myworkdayjobs.com/APTIV_CAREERS",
-        "location": "Germany",
-    },
-    # unverified — will return [] with a warning if URL is wrong
-    {
-        "name": "Continental",
-        "api_url": "https://continental.wd3.myworkdayjobs.com/wday/cxs/continental/Jobs/jobs",
-        "career_url": "https://continental.wd3.myworkdayjobs.com/Jobs",
-        "location": "Germany",
-    },
-    {
-        "name": "ZF Friedrichshafen",
-        "api_url": "https://zf.wd3.myworkdayjobs.com/wday/cxs/zf/ZF_Careers/jobs",
-        "career_url": "https://zf.wd3.myworkdayjobs.com/ZF_Careers",
-        "location": "Germany",
-    },
-    {
-        "name": "Schaeffler",
-        "api_url": "https://schaeffler.wd3.myworkdayjobs.com/wday/cxs/schaeffler/Schaeffler_Careers/jobs",
-        "career_url": "https://schaeffler.wd3.myworkdayjobs.com/Schaeffler_Careers",
-        "location": "Germany",
-    },
-    {
-        "name": "Infineon",
-        "api_url": "https://infineon.wd3.myworkdayjobs.com/wday/cxs/infineon/InfineonCareers/jobs",
-        "career_url": "https://infineon.wd3.myworkdayjobs.com/InfineonCareers",
-        "location": "Germany",
-    },
-    {
-        "name": "Harman",
-        "api_url": "https://harman.wd1.myworkdayjobs.com/wday/cxs/harman/HarmanCareers/jobs",
-        "career_url": "https://harman.wd1.myworkdayjobs.com/HarmanCareers",
-        "location": "Germany",
-    },
-]
+# All previous entries were automotive Tier-1s/OEMs (Magna, Valeo, BorgWarner,
+# Aptiv, Continental, ZF, Schaeffler, Infineon, Harman, Tesla, NIO, Bosch,
+# Vitesco, Forvia HELLA, Mahle, ElringKlinger, TE Connectivity, Brose, Leoni,
+# Bosch Rexroth, Rheinmetall). Cleared 2026-05-26 — user's domain is
+# BA/BI/Controlling/Data Werkstudent, not automotive engineering. Workday is
+# not a relevant discovery channel for this domain.
+WORKDAY_SITES: List[dict] = []
 
 # ── Personio Career Sites ─────────────────────────────────────
 # STATUS 2026-05-05: Personio deprecated the *.jobs.personio.{de,com} wildcard
@@ -289,79 +235,10 @@ WORKDAY_SITES: List[dict] = [
 PERSONIO_SITES: List[dict] = []
 
 
-# ── Company Websites — EV / new-energy OEM career portals ─────
-# Uses the generic HTML scraper (CompanyScraper).
-# NOTE: JS-rendered sites return 0 results — LinkedIn TargetCompanyScraper
-#       is the primary discovery path for these companies.
-# Format: name, url, job_selector, title_selector, link_selector,
-#         location_selector, location
-COMPANY_SITES: List[dict] = [
-    # BYD Europe — Frankfurt / Nuremberg offices
-    # Static HTML renders job cards in .jobs-list-container li (no JS needed).
-    # Verified 2026-05-03: 20 job cards returned from static HTML.
-    {
-        "name": "BYD Auto",
-        "url": "https://careers.bydeurope.com/jobs",
-        "job_selector": ".jobs-list-container li",
-        "title_selector": "a, h2, h3, .job-title",
-        "link_selector": "a",
-        "location_selector": ".text-base",
-        "location": "Germany",
-        "js_rendered": False,
-    },
-    # Xiaomi — European HQ Düsseldorf + Munich
-    # JS-rendered SPA — covered by TargetCompanyScraper (LinkedIn).
-    # Kept here so the URL stays current; errors suppressed to DEBUG.
-    {
-        "name": "Xiaomi",
-        "url": "https://career.mi.com/home",
-        "job_selector": ".job-item, .career-item, li[data-ph-at-id]",
-        "title_selector": "h2, h3, .job-title",
-        "link_selector": "a",
-        "location_selector": ".location, .job-location",
-        "location": "Germany",
-        "js_rendered": True,
-    },
-    # CATL — Erfurt gigafactory + Munich engineering hub
-    # Official career site: catl-career.com (NOT catl.com/en/join — that's the corporate site)
-    # JS-rendered SPA — BeautifulSoup returns 0 cards; covered by TargetCompanyScraper (LinkedIn).
-    {
-        "name": "CATL",
-        "url": "https://www.catl-career.com/viewalljobs/",
-        "job_selector": ".job-card, .position-item, article.job, li.opening",
-        "title_selector": "h2, h3, .job-title, .position-title",
-        "link_selector": "a",
-        "location_selector": ".location, .position-location, .job-location",
-        "location": "Germany",
-        "js_rendered": True,
-    },
-]
-
-# Extend WORKDAY_SITES with EV OEMs that use Workday ATS
-WORKDAY_SITES.extend([
-    # Tesla — verified Workday tenant (Gigafactory Berlin + Munich offices)
-    {
-        "name": "Tesla",
-        "api_url": "https://tesla.wd1.myworkdayjobs.com/wday/cxs/tesla/TeslaMotors/jobs",
-        "career_url": "https://tesla.wd1.myworkdayjobs.com/TeslaMotors",
-        "location": "Germany",
-    },
-    # NIO — Munich R&D hub; verified wd3/NIO_Careers tenant
-    {
-        "name": "NIO",
-        "api_url": "https://nio.wd3.myworkdayjobs.com/wday/cxs/nio/NIO_Careers/jobs",
-        "career_url": "https://nio.wd3.myworkdayjobs.com/NIO_Careers",
-        "location": "Germany",
-    },
-    # XPENG — uses Greenhouse ATS (job-boards.greenhouse.io/xpengmotors), NOT Workday.
-    # Covered by TargetCompanyScraper via LinkedIn. Disabled here to avoid silent 404s.
-    # {
-    #     "name": "XPENG",
-    #     "api_url": "https://xpeng.wd3.myworkdayjobs.com/wday/cxs/xpeng/XPENG/jobs",
-    #     "career_url": "https://xpeng.wd3.myworkdayjobs.com/XPENG",
-    #     "location": "Germany",
-    # },
-])
+# ── Company Websites — generic HTML scraper ───────────────────
+# All previous entries were EV OEMs (BYD, Xiaomi, CATL). Cleared 2026-05-26
+# — user's domain is BA/BI/Controlling/Data Werkstudent, not EV/automotive.
+COMPANY_SITES: List[dict] = []
 
 # ── Target Companies — dedicated LinkedIn scrape targets ───────
 # Consumed by scrapers/target_companies.py (TargetCompanyScraper).
@@ -375,76 +252,7 @@ WORKDAY_SITES.extend([
 #                   (fuzzy substring — "Tesla GmbH" matches variant "Tesla")
 #   search_terms  : paired with company name → LinkedIn query string
 #                   "{company_name} {term}" searched in Germany
-TARGET_COMPANIES: List[dict] = [
-    {
-        "name": "Tesla",
-        "name_variants": ["Tesla", "Tesla Motors", "Tesla Deutschland", "Tesla Germany"],
-        "search_terms": [
-            "Werkstudent Ingenieur",
-            "Praktikum engineering",
-            "working student automotive",
-            "intern engineer",
-            "Masterarbeit",
-        ],
-    },
-    {
-        "name": "BYD",
-        "name_variants": ["BYD", "BYD Auto", "BYD Europe", "BYD Auto GmbH", "BYD Company"],
-        "search_terms": [
-            "Werkstudent engineering",
-            "Praktikum automotive",
-            "intern engineer Germany",
-            "Ingenieur",
-        ],
-    },
-    {
-        "name": "Xiaomi",
-        "name_variants": ["Xiaomi", "Xiaomi Deutschland", "Xiaomi Germany", "Xiaomi GmbH"],
-        "search_terms": [
-            "engineer Germany",
-            "Ingenieur",
-            "Werkstudent",
-            "intern",
-        ],
-    },
-    {
-        "name": "NIO",
-        "name_variants": ["NIO", "NIO GmbH", "NIO Germany", "NIO Europe"],
-        "search_terms": [
-            "Werkstudent automotive",
-            "engineer Munich",
-            "Praktikum",
-            "working student",
-        ],
-    },
-    {
-        "name": "CATL",
-        "name_variants": ["CATL", "Contemporary Amperex", "CATL Germany", "CATL Europe"],
-        "search_terms": [
-            "battery engineer",
-            "Batterieingenieur",
-            "Werkstudent",
-            "Praktikum Germany",
-        ],
-    },
-    {
-        "name": "Polestar",
-        "name_variants": ["Polestar", "Polestar Automotive", "Polestar Germany"],
-        "search_terms": [
-            "engineer Germany",
-            "Werkstudent automotive",
-            "Praktikum",
-        ],
-    },
-    {
-        "name": "Rivian",
-        "name_variants": ["Rivian", "Rivian Automotive"],
-        "search_terms": [
-            "engineer Germany",
-            "Ingenieur",
-        ],
-    },
-]
+TARGET_COMPANIES: List[dict] = []
 
 # ═══════════════════════════════════════════════════════════════════
 # AUTOMOTIVE EXPANSION — added 2026-04-28
@@ -452,410 +260,286 @@ TARGET_COMPANIES: List[dict] = [
 # houses, and engineering service providers active in Germany.
 # ═══════════════════════════════════════════════════════════════════
 
-# ── Additional Workday ATS companies ──────────────────────────
-# All marked unverified unless noted; WorkdayScraper returns []
-# gracefully on 4xx so wrong URLs cause no harm.
-WORKDAY_SITES.extend([
-    # ── Tier-1 Suppliers ──────────────────────────────────────
-    {
-        "name": "Robert Bosch",
-        "api_url": "https://bosch.wd3.myworkdayjobs.com/wday/cxs/bosch/BoschExternalCareerSite/jobs",
-        "career_url": "https://bosch.wd3.myworkdayjobs.com/BoschExternalCareerSite",
-        "location": "Germany",
-    },
-    # Vitesco was acquired by Schaeffler (2024). Their career portal at
-    # jobs.vitesco-technologies.com redirects to Schaeffler jobs.
-    # Workday URL unverified — returns [] silently on 404; covered by LinkedIn.
-    {
-        "name": "Vitesco Technologies",
-        "api_url": "https://vitesco-technologies.wd3.myworkdayjobs.com/wday/cxs/vitesco-technologies/VitescoTechnologies/jobs",
-        "career_url": "https://vitesco-technologies.wd3.myworkdayjobs.com/VitescoTechnologies",
-        "location": "Germany",
-    },
-    # Forvia HELLA — uses hella.com/en/Career portal (SAP SF backend likely).
-    # Workday URL unverified; returns [] silently on 404.
-    {
-        "name": "Forvia HELLA",
-        "api_url": "https://forvia.wd3.myworkdayjobs.com/wday/cxs/forvia/HELLA/jobs",
-        "career_url": "https://forvia.wd3.myworkdayjobs.com/HELLA",
-        "location": "Germany",
-    },
-    # MAHLE — uses careers.mahle.com / jobs.mahle.com (own portal).
-    # Workday URL unverified; returns [] silently on 404.
-    {
-        "name": "Mahle",
-        "api_url": "https://mahle.wd3.myworkdayjobs.com/wday/cxs/mahle/MahleGroup/jobs",
-        "career_url": "https://mahle.wd3.myworkdayjobs.com/MahleGroup",
-        "location": "Germany",
-    },
-    {
-        "name": "ElringKlinger",
-        # Verified: public job URLs use /External/ — tenant name is "External"
-        "api_url": "https://elringklinger.wd3.myworkdayjobs.com/wday/cxs/elringklinger/External/jobs",
-        "career_url": "https://elringklinger.wd3.myworkdayjobs.com/External",
-        "location": "Germany",
-    },
-    {
-        "name": "TE Connectivity",
-        "api_url": "https://te.wd1.myworkdayjobs.com/wday/cxs/te/TEConnectivityJobs/jobs",
-        "career_url": "https://te.wd1.myworkdayjobs.com/TEConnectivityJobs",
-        "location": "Germany",
-    },
-    {
-        "name": "Brose",
-        "api_url": "https://brose.wd3.myworkdayjobs.com/wday/cxs/brose/Brose/jobs",
-        "career_url": "https://brose.wd3.myworkdayjobs.com/Brose",
-        "location": "Germany",
-    },
-    {
-        "name": "Leoni",
-        "api_url": "https://leoni.wd3.myworkdayjobs.com/wday/cxs/leoni/Leoni/jobs",
-        "career_url": "https://leoni.wd3.myworkdayjobs.com/Leoni",
-        "location": "Germany",
-    },
-    # ── Tech / Electronics ────────────────────────────────────
-    # Siemens AG uses jobs.siemens.com (SAP SuccessFactors), NOT Workday.
-    # siemensgamesa.wd3.myworkdayjobs.com is Siemens Gamesa (wind energy, unrelated).
-    # Siemens is covered by TARGET_COMPANIES (LinkedIn). Disabled here.
-    # {
-    #     "name": "Siemens",
-    #     "api_url": "https://siemens.wd3.myworkdayjobs.com/wday/cxs/siemens/Siemens/jobs",
-    #     "career_url": "https://siemens.wd3.myworkdayjobs.com/Siemens",
-    #     "location": "Germany",
-    # },
-    {
-        "name": "Bosch Rexroth",
-        "api_url": "https://boschrexroth.wd3.myworkdayjobs.com/wday/cxs/boschrexroth/BoschRexroth/jobs",
-        "career_url": "https://boschrexroth.wd3.myworkdayjobs.com/BoschRexroth",
-        "location": "Germany",
-    },
-    # ── Defense / Industrial Automotive ──────────────────────
-    # Rheinmetall uses rheinmetall.com/en/career/vacancies (SAP or custom ATS).
-    # Workday URL unverified; returns [] silently on 404.
-    {
-        "name": "Rheinmetall",
-        "api_url": "https://rheinmetall.wd3.myworkdayjobs.com/wday/cxs/rheinmetall/Rheinmetall/jobs",
-        "career_url": "https://rheinmetall.wd3.myworkdayjobs.com/Rheinmetall",
-        "location": "Germany",
-    },
-])
+# All WORKDAY_SITES.extend automotive blocks removed 2026-05-26.
 
 # PERSONIO_SITES.extend([]) — all former entries cleared 2026-05-05 (see note above)
 
-# ── Additional LinkedIn target companies ──────────────────────
-# Major OEMs + Tier-1 suppliers + simulation houses not on Workday/Personio
+# ── LinkedIn target companies — Data + Business Werkstudent ──────
+# Replaced automotive list 2026-05-26. Focus: BA/BI/Controlling/Data/PM
+# Werkstudent at mid-size Bavarian companies with better odds than top-tier OEMs.
 TARGET_COMPANIES.extend([
-    # ── German OEMs ──────────────────────────────────────────
+    # ── Tier A — Werkstudent BA/BI/Data factories (Munich/Bavaria) ──
     {
-        "name": "BMW Group",
-        "name_variants": ["BMW", "BMW Group", "BMW AG", "BMW M GmbH", "BMW Motorrad"],
+        "name": "Check24",
+        "name_variants": ["Check24", "CHECK24", "Check24 Vergleichsportal", "Check24 GmbH"],
         "search_terms": [
-            "Werkstudent Ingenieur",
-            "Praktikum Fahrzeugtechnik",
-            "working student automotive",
-            "Masterarbeit Fahrzeug",
-            "intern engineer Munich",
+            "Werkstudent Business Analytics",
+            "Werkstudent Data",
+            "Werkstudent Controlling",
         ],
     },
     {
-        "name": "Mercedes-Benz",
-        "name_variants": ["Mercedes-Benz", "Mercedes Benz", "Mercedes-Benz AG", "Mercedes-Benz Group"],
+        "name": "Celonis",
+        "name_variants": ["Celonis", "Celonis SE", "Celonis GmbH"],
         "search_terms": [
-            "Werkstudent Ingenieur",
-            "Praktikum engineering",
-            "working student automotive",
-            "Masterarbeit",
-            "intern engineer Stuttgart",
+            "Working Student Process Mining",
+            "Working Student Data Analyst",
+            "Werkstudent Customer Analytics",
         ],
     },
     {
-        "name": "Volkswagen",
-        "name_variants": ["Volkswagen", "Volkswagen AG", "VW AG", "Volkswagen Group", "Volkswagen Pkw"],
+        "name": "Personio",
+        "name_variants": ["Personio", "Personio SE", "Personio GmbH"],
         "search_terms": [
-            "Werkstudent Ingenieur",
-            "Praktikum Fahrzeugentwicklung",
-            "working student engineering",
-            "Masterarbeit Fahrzeugtechnik",
+            "Werkstudent People Analytics",
+            "Werkstudent Business Intelligence",
+            "Working Student Data",
         ],
     },
     {
-        "name": "Audi",
-        "name_variants": ["Audi", "Audi AG", "AUDI AG", "Audi Sport"],
+        "name": "DATEV",
+        "name_variants": ["DATEV", "DATEV eG", "DATEV Software", "DATEV Magazin"],
         "search_terms": [
-            "Werkstudent Ingenieur",
-            "Praktikum Fahrwerk",
-            "working student Ingolstadt",
-            "Masterarbeit Fahrzeugtechnik",
-            "intern engineer Ingolstadt",
+            "Werkstudent Controlling",
+            "Werkstudent Business Intelligence",
+            "Werkstudent Reporting",
         ],
     },
     {
-        "name": "Porsche",
-        "name_variants": ["Porsche", "Porsche AG", "Dr. Ing. h.c. F. Porsche", "Porsche Engineering"],
+        "name": "msg systems",
+        "name_variants": ["msg systems", "msg", "msg systems ag", "msg group", "msg systems AG"],
         "search_terms": [
-            "Werkstudent Ingenieur",
-            "Praktikum Fahrdynamik",
-            "working student Stuttgart",
-            "Masterarbeit Antrieb",
+            "Werkstudent Business Intelligence",
+            "Werkstudent Data Analytics",
+            "Werkstudent SAP",
         ],
     },
     {
-        "name": "Daimler Truck",
-        "name_variants": ["Daimler Truck", "Daimler Trucks", "Daimler Truck AG", "Mercedes-Benz Trucks"],
+        "name": "adesso",
+        "name_variants": ["adesso", "adesso SE", "adesso AG", "adesso group"],
         "search_terms": [
-            "Werkstudent Ingenieur",
-            "Praktikum engineering",
-            "working student truck",
-            "Masterarbeit Nutzfahrzeug",
+            "Werkstudent Business Intelligence",
+            "Werkstudent Data Analytics",
+            "Werkstudent Power BI",
         ],
     },
     {
-        "name": "Opel",
-        "name_variants": ["Opel", "Opel Automobile", "Stellantis", "Opel Automobile GmbH"],
+        "name": "TNG Technology Consulting",
+        "name_variants": ["TNG", "TNG Technology Consulting", "TNG Technology Consulting GmbH"],
         "search_terms": [
-            "Werkstudent Ingenieur",
-            "Praktikum automotive",
-            "intern engineer Rüsselsheim",
-        ],
-    },
-    # ── Tier-1 Suppliers (LinkedIn discovery) ────────────────
-    {
-        "name": "Robert Bosch",
-        "name_variants": ["Bosch", "Robert Bosch", "Robert Bosch GmbH", "Bosch Engineering"],
-        "search_terms": [
-            "Werkstudent Ingenieur",
-            "Praktikum engineering",
-            "working student automotive",
-            "Masterarbeit Elektrotechnik",
+            "Werkstudent Data",
+            "Werkstudent Analytics",
+            "Working Student Data Science",
         ],
     },
     {
-        "name": "Vitesco Technologies",
-        "name_variants": ["Vitesco", "Vitesco Technologies", "Vitesco Technologies GmbH"],
+        "name": "Sopra Steria",
+        "name_variants": ["Sopra Steria", "Sopra Steria SE", "Sopra Steria Consulting"],
         "search_terms": [
-            "Werkstudent Elektromobilität",
-            "Praktikum EV powertrain",
-            "working student electric",
-            "Masterarbeit Antriebselektronik",
+            "Werkstudent Data Analytics",
+            "Werkstudent Business Intelligence",
+            "Werkstudent Controlling",
         ],
     },
     {
-        "name": "Hella",
-        "name_variants": ["Hella", "HELLA", "Forvia HELLA", "HELLA GmbH", "Forvia"],
+        "name": "Capco",
+        "name_variants": ["Capco", "Capco Germany", "The Capital Markets Company"],
         "search_terms": [
-            "Werkstudent Ingenieur",
-            "Praktikum electronics",
-            "working student Lippstadt",
-            "Masterarbeit Fahrzeugelektronik",
+            "Werkstudent Data",
+            "Werkstudent Business Analyst",
+            "Working Student Consulting",
         ],
     },
     {
-        "name": "Mahle",
-        "name_variants": ["Mahle", "MAHLE", "MAHLE GmbH", "MAHLE International"],
+        "name": "Cofinpro",
+        "name_variants": ["Cofinpro", "Cofinpro AG", "Cofinpro GmbH"],
         "search_terms": [
-            "Werkstudent Ingenieur",
-            "Praktikum thermal",
-            "working student Stuttgart",
-            "Masterarbeit Thermomanagement",
+            "Werkstudent Banking",
+            "Werkstudent Business Analyst",
+            "Werkstudent Reporting",
+        ],
+    },
+    # ── Tier B — Insurance / banking back-office (controlling + BI) ──
+    {
+        "name": "Allianz Technology",
+        "name_variants": ["Allianz Technology", "Allianz Technology SE", "AZ Technology"],
+        "search_terms": [
+            "Werkstudent Data Analytics",
+            "Werkstudent Business Intelligence",
+            "Werkstudent Controlling",
         ],
     },
     {
-        "name": "ElringKlinger",
-        "name_variants": ["ElringKlinger", "Elring Klinger", "ElringKlinger AG"],
+        "name": "Versicherungskammer Bayern",
+        "name_variants": ["Versicherungskammer Bayern", "Versicherungskammer", "VKB"],
         "search_terms": [
-            "Werkstudent EV",
-            "Praktikum fuel cell",
-            "Masterarbeit Brennstoffzelle",
-            "working student electric",
-        ],
-    },
-    # ── Simulation & Test Specialists ─────────────────────────
-    {
-        "name": "AVL",
-        "name_variants": ["AVL", "AVL List", "AVL Deutschland", "AVL Software and Functions"],
-        "search_terms": [
-            "Werkstudent Simulation",
-            "Praktikum Motorenentwicklung",
-            "working student powertrain",
-            "Masterarbeit Simulation",
+            "Werkstudent Controlling",
+            "Werkstudent Datenanalyse",
+            "Werkstudent Reporting",
         ],
     },
     {
-        "name": "dSPACE",
-        "name_variants": ["dSPACE", "dSPACE GmbH", "dspace"],
+        "name": "UniCredit",
+        "name_variants": ["UniCredit", "HypoVereinsbank", "HVB", "UniCredit Bank GmbH", "UniCredit Bank AG"],
         "search_terms": [
-            "Werkstudent Simulation",
-            "Praktikum HIL",
-            "working student ADAS",
-            "Masterarbeit Embedded",
+            "Werkstudent Controlling",
+            "Werkstudent Business Intelligence",
+            "Werkstudent Risk",
         ],
     },
     {
-        "name": "ETAS",
-        "name_variants": ["ETAS", "ETAS GmbH", "ETAS Group"],
+        "name": "BayernLB",
+        "name_variants": ["BayernLB", "Bayerische Landesbank", "Bayern LB"],
         "search_terms": [
-            "Werkstudent Embedded",
-            "Praktikum automotive software",
-            "working student Stuttgart",
+            "Werkstudent Controlling",
+            "Werkstudent Reporting",
+            "Werkstudent Data",
         ],
     },
     {
-        "name": "Horiba",
-        "name_variants": ["Horiba", "Horiba Europe", "Horiba FuelCon", "Horiba MIRA"],
+        "name": "Generali Deutschland",
+        "name_variants": ["Generali", "Generali Deutschland", "Generali Deutschland AG", "Generali Versicherung"],
         "search_terms": [
-            "Werkstudent testing",
-            "Praktikum Erprobung",
-            "working student measurement",
-        ],
-    },
-    # ── Engineering Services ──────────────────────────────────
-    {
-        "name": "Ricardo",
-        "name_variants": ["Ricardo", "Ricardo plc", "Ricardo Germany", "Ricardo GmbH"],
-        "search_terms": [
-            "engineer Germany",
-            "Werkstudent automotive",
-            "Praktikum powertrain",
+            "Werkstudent Controlling",
+            "Werkstudent Business Intelligence",
+            "Werkstudent Datenanalyse",
         ],
     },
     {
-        "name": "Bertrandt",
-        "name_variants": ["Bertrandt", "Bertrandt AG", "Bertrandt GmbH"],
+        "name": "Stadtsparkasse München",
+        "name_variants": ["Stadtsparkasse München", "Stadtsparkasse Muenchen", "SSKM"],
         "search_terms": [
-            "Werkstudent Ingenieur",
-            "Praktikum Fahrzeugentwicklung",
-            "working student automotive Bavaria",
+            "Werkstudent Controlling",
+            "Werkstudent Datenanalyse",
+            "Werkstudent Reporting",
+        ],
+    },
+    # ── Tier C — Munich tech / digital with strong data teams ──────
+    {
+        "name": "Scout24",
+        "name_variants": ["Scout24", "Scout24 SE", "ImmoScout24", "AutoScout24"],
+        "search_terms": [
+            "Werkstudent Data Analytics",
+            "Werkstudent Business Intelligence",
+            "Working Student Data",
         ],
     },
     {
-        "name": "Hyundai Motor Europe",
-        "name_variants": ["Hyundai", "Hyundai Motor Europe", "Hyundai Motor", "Kia Europe"],
+        "name": "ProSiebenSat.1",
+        "name_variants": ["ProSiebenSat.1", "ProSiebenSat.1 Media", "ProSieben", "P7S1"],
         "search_terms": [
-            "Werkstudent engineer Frankfurt",
-            "Praktikum automotive",
-            "working student EV",
-            "intern engineer Offenbach",
-        ],
-    },
-    # ── Former Personio tenants (migrated to SAP SF / own portals) ───────────
-    # Added 2026-05-05 when Personio deprecated *.jobs.personio.{de,com} wildcard.
-    {
-        "name": "EDAG Engineering",
-        "name_variants": ["EDAG", "EDAG Engineering", "EDAG Group", "EDAG Engineering GmbH"],
-        "search_terms": [
-            "Werkstudent Ingenieur",
-            "Praktikum Fahrzeugentwicklung",
-            "working student automotive",
-            "Masterarbeit Fahrzeug",
+            "Werkstudent Data Analytics",
+            "Werkstudent Business Intelligence",
+            "Werkstudent Controlling",
         ],
     },
     {
-        "name": "Knorr-Bremse",
-        "name_variants": ["Knorr-Bremse", "Knorr Bremse", "Knorr-Bremse AG", "Knorr-Bremse Group"],
+        "name": "Westwing",
+        "name_variants": ["Westwing", "Westwing Group", "Westwing Home & Living"],
         "search_terms": [
-            "Werkstudent Ingenieur",
-            "Praktikum Bremssystem",
-            "working student Munich",
-            "Masterarbeit Brake",
+            "Werkstudent Data Analytics",
+            "Werkstudent Business Intelligence",
+            "Werkstudent Controlling",
         ],
     },
     {
-        "name": "MAN Truck & Bus",
-        "name_variants": ["MAN", "MAN Truck", "MAN Truck & Bus", "MAN SE"],
+        "name": "Holidu",
+        "name_variants": ["Holidu", "Holidu GmbH", "Holidu Travel"],
         "search_terms": [
-            "Werkstudent Ingenieur",
-            "Praktikum Nutzfahrzeug",
-            "working student truck",
-            "Masterarbeit Antrieb",
+            "Werkstudent Data Analytics",
+            "Working Student Business Intelligence",
+            "Werkstudent Marketing Analytics",
         ],
     },
     {
-        "name": "IAV GmbH",
-        "name_variants": ["IAV", "IAV GmbH", "IAV Automotive Engineering"],
+        "name": "Stylight",
+        "name_variants": ["Stylight", "Stylight GmbH", "ProSiebenSat.1 Commerce"],
         "search_terms": [
-            "Werkstudent Simulation",
-            "Praktikum Fahrzeugtechnik",
-            "working student automotive",
-            "Masterarbeit Antriebsentwicklung",
+            "Werkstudent Data",
+            "Working Student Analytics",
+            "Werkstudent Marketing Analytics",
         ],
     },
     {
-        "name": "FEV Group",
-        "name_variants": ["FEV", "FEV Group", "FEV GmbH", "FEV Europe"],
+        "name": "Sportradar",
+        "name_variants": ["Sportradar", "Sportradar AG", "Sportradar Group"],
         "search_terms": [
-            "Werkstudent Simulation",
-            "Praktikum Motorenentwicklung",
-            "working student powertrain",
-            "Masterarbeit Verbrenner",
+            "Working Student Data Analyst",
+            "Werkstudent Data",
+            "Werkstudent Business Intelligence",
         ],
     },
     {
-        "name": "Expleo",
-        "name_variants": ["Expleo", "Expleo Group", "Expleo Germany", "AKKA Technologies"],
+        "name": "IDnow",
+        "name_variants": ["IDnow", "IDnow GmbH", "ID now"],
         "search_terms": [
-            "Werkstudent engineering",
-            "Praktikum Fahrzeugtechnik",
-            "working student automotive",
+            "Werkstudent Data Analytics",
+            "Werkstudent Business Analyst",
+            "Werkstudent Reporting",
+        ],
+    },
+    # ── Tier D — Industrial Munich mid-caps (sleepy careers pages, controlling/BI) ──
+    {
+        "name": "Stadtwerke München",
+        "name_variants": ["Stadtwerke München", "Stadtwerke Muenchen", "SWM", "SWM München"],
+        "search_terms": [
+            "Werkstudent Controlling",
+            "Werkstudent Business Intelligence",
+            "Werkstudent Datenanalyse",
         ],
     },
     {
-        "name": "ALTEN",
-        "name_variants": ["ALTEN", "ALTEN GmbH", "ALTEN Group", "ALTEN Technology"],
+        "name": "Wacker Chemie",
+        "name_variants": ["Wacker", "Wacker Chemie", "Wacker Chemie AG", "WACKER"],
         "search_terms": [
-            "Werkstudent Ingenieur",
-            "Praktikum automotive",
-            "working student engineering",
-        ],
-    },
-    # ── Workday 422 companies not yet on LinkedIn list ─────────
-    # Their Workday APIs are locked (422); LinkedIn is primary discovery path.
-    {
-        "name": "Continental",
-        "name_variants": ["Continental", "Continental AG", "Continental Automotive", "Conti"],
-        "search_terms": [
-            "Werkstudent Ingenieur",
-            "Praktikum Fahrzeugtechnik",
-            "working student automotive",
-            "Masterarbeit Elektronik",
+            "Werkstudent Controlling",
+            "Werkstudent SAP",
+            "Werkstudent Business Intelligence",
         ],
     },
     {
-        "name": "ZF Friedrichshafen",
-        "name_variants": ["ZF", "ZF Friedrichshafen", "ZF Group", "ZF AG"],
+        "name": "Linde",
+        "name_variants": ["Linde", "Linde plc", "Linde AG", "Linde Engineering"],
         "search_terms": [
-            "Werkstudent Fahrwerk",
-            "Praktikum Getriebe",
-            "working student driveline",
-            "Masterarbeit Antrieb",
+            "Werkstudent Controlling",
+            "Werkstudent Data Analytics",
+            "Werkstudent Reporting",
         ],
     },
     {
-        "name": "Schaeffler",
-        "name_variants": ["Schaeffler", "Schaeffler AG", "Schaeffler Group", "LuK"],
+        "name": "Rohde & Schwarz",
+        "name_variants": ["Rohde & Schwarz", "Rohde und Schwarz", "Rohde&Schwarz", "R&S"],
         "search_terms": [
-            "Werkstudent Ingenieur",
-            "Praktikum Elektromobilität",
-            "working student bearing",
-            "Masterarbeit E-Mobilität",
+            "Werkstudent Controlling",
+            "Werkstudent Business Intelligence",
+            "Werkstudent Data Analytics",
         ],
     },
     {
-        "name": "Infineon Technologies",
-        "name_variants": ["Infineon", "Infineon Technologies", "Infineon Technologies AG"],
+        "name": "Giesecke+Devrient",
+        "name_variants": ["Giesecke+Devrient", "Giesecke & Devrient", "G+D", "Giesecke Devrient"],
         "search_terms": [
-            "Werkstudent Simulation",
-            "Praktikum Halbleiter",
-            "working student Regensburg",
-            "Masterarbeit Power Electronics",
+            "Werkstudent Controlling",
+            "Werkstudent Business Intelligence",
+            "Werkstudent Data",
         ],
     },
     {
-        "name": "Harman International",
-        "name_variants": ["Harman", "Harman International", "HARMAN", "Samsung Harman"],
+        "name": "KraussMaffei",
+        "name_variants": ["KraussMaffei", "Krauss Maffei", "KraussMaffei Group", "KraussMaffei Technologies"],
         "search_terms": [
-            "Werkstudent automotive",
-            "Praktikum ADAS",
-            "working student connected car",
+            "Werkstudent Controlling",
+            "Werkstudent SAP",
+            "Werkstudent Data Analytics",
+        ],
+    },
+    {
+        "name": "Krones",
+        "name_variants": ["Krones", "Krones AG", "Krones Group"],
+        "search_terms": [
+            "Werkstudent Controlling",
+            "Werkstudent SAP",
+            "Werkstudent Business Intelligence",
         ],
     },
 ])

@@ -30,6 +30,8 @@ Three concurrent services start from `main.py`:
 
 **Two-layer keyword config**: `.env` / `config.py` holds first-run seeds only. Live values are in `data/keywords.json` and managed via Telegram commands (`/keywords`, `/tier1`, `/tier2`, `/tier3`). `utils/keywords.py → KeywordManager` is the single access point — always use it, not `config.*_KEYWORDS` directly.
 
+> **⚠ Domain check before quoting any keyword.** The `TIER1/2/3_KEYWORDS` lists in `config.py` are STALE automotive seeds (Vehicle Dynamics, MBD, CarMaker, etc.) left over from an earlier version of the bot. The user's **actual live domain is Business Analytics / BI / Controlling / Data / Project Management** (Power BI, SAP, Python, SQL, Tableau, Excel). Before mentioning any keyword, role example, or "your domain is X" claim to the user, read `data/keywords.json` — never quote from `config.py` seeds. The `TARGET_COMPANIES` / `WORKDAY_SITES` / `COMPANY_SITES` lists in `config.py` are also automotive-biased and do not reflect current targeting.
+
 **Document generation** (`documents/pipeline.py`): On Apply — 4-stage pipeline:
 1. **Generate** — `CVGenerator` (Sonnet) fills JSON for CV + CL concurrently
 2. **Humanize** — `ContentHumanizer` (Haiku) rewrites all text sections concurrently; preserves facts/tools/metrics; fails open

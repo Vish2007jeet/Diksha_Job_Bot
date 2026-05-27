@@ -233,22 +233,6 @@ def _check_accenture_feasibility(cv_content: dict) -> List[str]:
     return bad
 
 
-# ── Bullet label validator ─────────────────────────────────────
-
-def _check_bullet_labels(cv_content: dict) -> List[str]:
-    """
-    Return a list of malformed bullets — those missing 'Label: ' within the
-    first 30 characters. Both roles are checked; results include role+index for
-    easy identification in logs.
-    """
-    bad: List[str] = []
-    for role in ("chintamani", "accenture"):
-        for i, bullet in enumerate(cv_content.get(role, []), 1):
-            if ": " not in bullet[:30]:
-                bad.append(f"{role}[{i}]: {bullet[:70]}")
-    return bad
-
-
 # ── Cover Letter quality check ─────────────────────────────────
 
 _GENERIC_PHRASES = [

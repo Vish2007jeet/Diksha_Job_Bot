@@ -17,7 +17,7 @@ from utils.logger import logger
 
 _MODEL = "claude-haiku-4-5-20251001"
 
-_CV_TEXT_FIELDS   = ["summary", "competencies", "schanzer_desc", "veloce_desc"]
+_CV_TEXT_FIELDS   = ["summary", "competencies", "project1_desc", "project2_desc"]
 _CV_BULLET_FIELDS = ["chintamani", "accenture"]
 _CL_PARA_FIELDS   = ["para1", "para2", "para3", "para4", "para5"]
 

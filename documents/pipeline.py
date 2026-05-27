@@ -395,22 +395,75 @@ def _position_kw(title: str, max_words: int = 3) -> str:
 
 # ── JD Keyword Pre-Extraction ──────────────────────────────────
 
-_JD_KW_EXTRACT_PROMPT = """\
-Extract every ATS-critical keyword from the job description below.
-Return a JSON array of strings — flat list, no nesting.
-Include: tool names, software, abbreviations, methodologies, domain skills, \
-role titles, certifications, programming languages.
-Translate any German terms to their standard English equivalents.
-Order: most critical / most specific first.
-Maximum 25 items.
+_JD_DEEP_ANALYSIS_PROMPT = """\
+You are a senior CV strategist. Your job: read a job description deeply, understand what the \
+role is REALLY about, then produce a precise strategic writing brief for a specific candidate.
 
-JOB DESCRIPTION:
+Go beyond surface keywords. Understand the role's purpose, what pain it solves, what the \
+hiring manager actually wants — then map that to the candidate's real experience.
+
+━━ CANDIDATE PROFILE ━━
+{profile}
+
+━━ JOB DESCRIPTION ━━
 {jd}
 
-Return valid JSON only. Example: ["Supply Chain Management", "SAP MM", "Python", "SQL"]
+Return this exact JSON (no extra keys, no markdown):
+{{
+  "keywords": [
+    "<up to 25 ATS-critical terms, most critical first. Include: tools, software, \
+abbreviations, methodologies, domain skills, certifications, languages. \
+Translate German terms to English equivalents.>"
+  ],
+  "role_essence": "<1 sentence: what this role is REALLY about — its core mission, \
+not just the job title. E.g. 'Keep a global BI team's Power BI estate healthy and \
+extend it with new data models as the business grows'>",
+  "ideal_candidate": "<2 sentences: what experience, working style, and mindset the \
+hiring manager is actually looking for — read between the lines of the JD>",
+  "diksha_strongest_match": "<2-3 sentences: which SPECIFIC achievements from Diksha's \
+background hit hardest for THIS role. Be concrete — name the metric, the tool, the \
+company. E.g. 'Her Power BI dashboard work at Accenture covering 120+ agents maps \
+directly to the enterprise BI monitoring requirement. The 18% case-resolution improvement \
+from her Python/SQL analysis is the kind of data-driven impact this JD calls for.'>",
+  "summary_narrative": "<The exact 3-sentence arc the Profile Summary should follow for \
+THIS role: S1 = anchor to her strongest match point; S2 = the specific metric that \
+proves it; S3 = bridge to what she will contribute in THIS role>",
+  "bullet_strategy": {{
+    "chintamani": [
+      "<Bullet 1: [theme] | [exact angle to take] | [metric from her profile to use if applicable]>",
+      "<Bullet 2: ...>",
+      "<Bullet 3: ...>",
+      "<Bullet 4: ...>"
+    ],
+    "accenture": [
+      "<Bullet 1: [theme] | [exact angle to take] | [metric from her profile to use if applicable]>",
+      "<Bullet 2: ...>",
+      "<Bullet 3: ...>",
+      "<Bullet 4: ...>"
+    ]
+  }},
+  "cl_opening_hook": "<The single most powerful opening moment for Para 1 of the cover \
+letter — name the specific achievement, number, and situation from Diksha's work that \
+maps most directly to THIS JD's core need>",
+  "best_project": "<'supplier' or 'insurance'>",
+  "gaps_to_frame": "<Any mismatch between Diksha's profile and JD requirements, and \
+exactly how to frame it positively. If no significant gaps, write 'none'.>"
+}}
+
+Rules for bullet_strategy:
+- Chintamani context (Assistant Manager, Mar 2025–Feb 2026): Power BI, SAP FI/CO, \
+Excel Power Query, VBA, procurement analytics, cost variance, supplier contracts, \
+budget forecasting, Power Automate.
+- Accenture context (New Associate, Nov 2022–Feb 2025): Python (Pandas), SQL, Power BI, \
+insurance operations, SLA monitoring, KPI dashboards, data validation, stakeholder reporting.
+- Each bullet brief tells the writer WHAT to write, not just a topic.
+- Do NOT repeat the same theme across both roles.
+- Distribute JD requirements intelligently: put data-engineering themes on Accenture, \
+cost/governance themes on Chintamani, BI themes on whichever role fits better.
 """
 
-_HAIKU_MODEL = "claude-haiku-4-5"
+_HAIKU_MODEL  = "claude-haiku-4-5"
+_ANALYSIS_MODEL = "claude-sonnet-4-6"
 
 
 # ── Company research hook ──────────────────────────────────────
@@ -477,53 +530,105 @@ async def _fetch_company_fact(company: str) -> str:
     return ""
 
 
-async def _extract_jd_keywords(jd: str, tracker=None, job_id: str = "") -> list[str]:
+async def _extract_jd_keywords(jd: str, tracker=None, job_id: str = "") -> tuple[list[str], str]:
     """
-    Lightweight Haiku call that extracts an explicit ATS keyword list from the JD.
-    Returns a list of up to 25 strings (most critical first).
-    Fails open — returns [] on any error so generation still proceeds.
+    Sonnet-powered deep JD analysis — goes beyond keywords to produce a full
+    strategic CV writing brief: role essence, ideal candidate, Diksha's strongest
+    match points, per-bullet strategy, and CL hook.
+
+    Returns (keywords, strategic_brief_block).
+    Fails open — returns ([], "") on any error so generation still proceeds.
     """
     import anthropic as _anthropic
     from utils.cost import calc_cost as _calc_cost
 
     if not jd.strip():
-        return []
+        return [], ""
+
+    prompt = _JD_DEEP_ANALYSIS_PROMPT.format(
+        profile=config.CV_PROFILE_TEXT[:3000],
+        jd=jd[:4000],
+    )
 
     try:
         client = _anthropic.Anthropic(api_key=config.ANTHROPIC_API_KEY)
         response = await asyncio.to_thread(
             client.messages.create,
-            model=_HAIKU_MODEL,
-            max_tokens=400,
-            messages=[{"role": "user", "content": _JD_KW_EXTRACT_PROMPT.format(jd=jd[:4000])}],
+            model=_ANALYSIS_MODEL,
+            max_tokens=1200,
+            messages=[{"role": "user", "content": prompt}],
         )
         if tracker and job_id:
             cost = _calc_cost(
-                _HAIKU_MODEL,
+                _ANALYSIS_MODEL,
                 response.usage.input_tokens,
                 response.usage.output_tokens,
             )
             tracker.log_api_cost(
-                job_id, "jd_analysis", _HAIKU_MODEL,
+                job_id, "jd_analysis", _ANALYSIS_MODEL,
                 response.usage.input_tokens, response.usage.output_tokens, cost,
             )
 
         raw = response.content[0].text.strip() if response.content else ""
-        # Strip markdown fences if present
         if raw.startswith("```"):
             parts = raw.split("```")
             raw = parts[1] if len(parts) > 1 else raw
             if raw.startswith("json"):
                 raw = raw[4:]
             raw = raw.strip()
-        keywords: list = json.loads(raw)
-        if isinstance(keywords, list):
-            keywords = [str(k) for k in keywords if k][:25]
-            logger.info(f"[JD Keywords] Extracted {len(keywords)}: {', '.join(keywords[:8])}{'…' if len(keywords) > 8 else ''}")
-            return keywords
+
+        data = json.loads(raw)
+
+        # Legacy flat-list fallback
+        if isinstance(data, list):
+            return [str(k) for k in data if k][:25], ""
+
+        keywords   = [str(k) for k in data.get("keywords", []) if k][:25]
+        best_proj  = data.get("best_project", "supplier")
+        proj_label = "Supplier Spend Analytics and Cost Dashboard" if best_proj == "supplier" \
+                     else "Insurance Operations Reporting Automation"
+
+        chin_bullets = data.get("bullet_strategy", {}).get("chintamani", [])
+        acc_bullets  = data.get("bullet_strategy", {}).get("accenture",  [])
+
+        sections = ["━━━ STRATEGIC CV BRIEF — READ THIS FIRST, THEN WRITE ━━━"]
+
+        if v := data.get("role_essence"):
+            sections += ["", f"ROLE ESSENCE: {v}"]
+        if v := data.get("ideal_candidate"):
+            sections += ["", f"IDEAL CANDIDATE (read between the lines):\n{v}"]
+        if v := data.get("diksha_strongest_match"):
+            sections += ["", f"DIKSHA'S STRONGEST MATCH POINTS FOR THIS ROLE:\n{v}"]
+        if v := data.get("summary_narrative"):
+            sections += ["", f"PROFILE SUMMARY — follow this exact 3-sentence arc:\n{v}"]
+
+        if chin_bullets:
+            sections += ["", "CHINTAMANI BULLETS — write one bullet per item, in this order:"]
+            sections += [f"  {i+1}. {b}" for i, b in enumerate(chin_bullets)]
+        if acc_bullets:
+            sections += ["", "ACCENTURE BULLETS — write one bullet per item, in this order:"]
+            sections += [f"  {i+1}. {b}" for i, b in enumerate(acc_bullets)]
+
+        sections += ["", f"LEAD PROJECT IN CL PARA 3: {proj_label}"]
+
+        if v := data.get("cl_opening_hook"):
+            sections += ["", f"CL PARA 1 OPENING HOOK:\n{v}"]
+        if v := data.get("gaps_to_frame", "none"):
+            if v.lower() != "none":
+                sections += ["", f"GAPS TO FRAME POSITIVELY:\n{v}"]
+
+        sections.append("━━━ END OF BRIEF ━━━")
+        focus_block = "\n".join(sections)
+
+        logger.info(
+            f"[JD Deep Analysis] {len(keywords)} keywords | "
+            f"essence: {data.get('role_essence', '')[:70]}"
+        )
+        return keywords, focus_block
+
     except Exception as exc:
-        logger.warning(f"JD keyword extraction failed (non-fatal): {exc}")
-    return []
+        logger.warning(f"JD deep analysis failed (non-fatal): {exc}")
+    return [], ""
 
 
 class DocumentPipeline:
@@ -587,11 +692,11 @@ class DocumentPipeline:
             except Exception as exc:
                 logger.warning(f"Re-fetch failed for {job.job_id}: {exc} — proceeding without JD")
 
-        # Stage 1: Extract ATS keywords from JD (Haiku, ~$0.0005) — runs before generation
-        jd_keywords = await _extract_jd_keywords(jd, tracker=self._tracker, job_id=job.job_id)
+        # Stage 1: JD analysis — keywords + role-focus (Haiku, ~$0.0005)
+        jd_keywords, jd_focus = await _extract_jd_keywords(jd, tracker=self._tracker, job_id=job.job_id)
 
         # CV runs first so the CL can reference its actual bullets
-        cv_content, cv_eval = await self._cv_loop(job, jd, jd_keywords=jd_keywords)
+        cv_content, cv_eval = await self._cv_loop(job, jd, jd_keywords=jd_keywords, jd_focus=jd_focus)
 
         # If best CV is still below the target, warn and continue — never block on ATS alone.
         if cv_eval.ats_score < config.ATS_SCORE_TARGET:
@@ -604,7 +709,7 @@ class DocumentPipeline:
         company_fact = await _fetch_company_fact(job.company)
 
         cl_content, cl_eval = await self._cl_loop(
-            job, jd, application_notes, jd_keywords=jd_keywords,
+            job, jd, application_notes, jd_keywords=jd_keywords, jd_focus=jd_focus,
             cv_content=cv_content, company_fact=company_fact,
         )
 
@@ -691,7 +796,7 @@ class DocumentPipeline:
         )
         return raw_content, raw_eval
 
-    async def _cv_one_candidate(self, job, jd: str, feedback: str, jd_keywords: list | None):
+    async def _cv_one_candidate(self, job, jd: str, feedback: str, jd_keywords: list | None, jd_focus: str = ""):
         """
         Produce one CV candidate:
           generate → word-count check → feasibility check → humanize-or-keep eval.
@@ -701,7 +806,7 @@ class DocumentPipeline:
         """
         try:
             content = await self.generator.generate_cv_content(
-                job, feedback=feedback, jd_keywords=jd_keywords
+                job, feedback=feedback, jd_keywords=jd_keywords, jd_focus=jd_focus
             )
         except Exception as exc:
             return ("error", exc, None)
@@ -736,7 +841,7 @@ class DocumentPipeline:
         content, ev = await self._humanize_and_pick_best_cv(job.job_id, jd, content)
         return ("ok", content, ev)
 
-    async def _cv_loop(self, job, jd: str, jd_keywords: list | None = None):
+    async def _cv_loop(self, job, jd: str, jd_keywords: list | None = None, jd_focus: str = ""):
         """
         Generate → Humanize → Evaluate loop for the CV.
 
@@ -753,7 +858,7 @@ class DocumentPipeline:
                 logger.info(f"CV best-of-{parallel} on attempt {attempt + 1}")
 
             results = await asyncio.gather(
-                *[self._cv_one_candidate(job, jd, feedback, jd_keywords) for _ in range(parallel)],
+                *[self._cv_one_candidate(job, jd, feedback, jd_keywords, jd_focus) for _ in range(parallel)],
                 return_exceptions=False,
             )
 
@@ -856,7 +961,8 @@ class DocumentPipeline:
         return raw_content, raw_eval
 
     async def _cl_one_candidate(self, job, jd: str, application_notes: str, feedback: str,
-                                 jd_keywords: list | None, cv_content: dict | None, company_fact: str):
+                                 jd_keywords: list | None, cv_content: dict | None, company_fact: str,
+                                 jd_focus: str = ""):
         """
         Produce one CL candidate.
         Returns ('ok', content, eval), ('struct_fail', feedback_msg, None), or ('error', exc, None).
@@ -865,7 +971,7 @@ class DocumentPipeline:
             raw = await self.generator.generate_cl_content(
                 job, application_notes=application_notes, feedback=feedback,
                 jd_keywords=jd_keywords, cv_content=cv_content,
-                company_fact=company_fact,
+                company_fact=company_fact, jd_focus=jd_focus,
             )
         except Exception as exc:
             return ("error", exc, None)
@@ -888,7 +994,7 @@ class DocumentPipeline:
 
         return ("ok", content, ev)
 
-    async def _cl_loop(self, job, jd: str, application_notes: str, jd_keywords: list | None = None, cv_content: dict | None = None, company_fact: str = ""):
+    async def _cl_loop(self, job, jd: str, application_notes: str, jd_keywords: list | None = None, jd_focus: str = "", cv_content: dict | None = None, company_fact: str = ""):
         """
         Generate → Humanize → Evaluate loop for the Cover Letter.
 
@@ -907,7 +1013,7 @@ class DocumentPipeline:
             results = await asyncio.gather(
                 *[self._cl_one_candidate(
                     job, jd, application_notes, feedback,
-                    jd_keywords, cv_content, company_fact,
+                    jd_keywords, cv_content, company_fact, jd_focus,
                 ) for _ in range(parallel)],
                 return_exceptions=False,
             )

@@ -19,18 +19,20 @@ from utils.logger import logger
 
 # ── Banned words ───────────────────────────────────────────────────
 BANNED_WORDS: List[str] = [
-    # Inflated AI action verbs
-    "leveraged", "utilised", "utilized", "cutting-edge", "delve", "foster",
-    "garner", "showcase", "spearheaded", "harnessed",
-    "revolutionised", "revolutionized", "transformative",
-    "synergy", "synergies", "proactive",
+    # Inflated AI action verbs (genuine AI tells — not permitted by generator)
+    "cutting-edge", "delve", "foster", "garner", "showcase", "spearheaded",
+    "harnessed", "revolutionised", "revolutionized", "transformative",
+    "synergy", "synergies",
+    # NOTE: "leveraged", "utilised", "utilized", "robust", "impactful", "proactive"
+    # are PERMITTED by the generator prompt — do NOT add them here or they cause
+    # false retry loops that waste cost without improving quality.
     # Corporate filler
-    "pivotal", "crucial", "enhance", "serves as", "boasts",
-    "state-of-the-art", "successfully", "robust", "seamlessly", "impactful",
+    "pivotal", "crucial", "serves as", "boasts",
+    "state-of-the-art", "successfully", "seamlessly",
     "forward-thinking", "result-driven", "results-driven",
     "innovative solutions", "best-in-class", "world-class",
     # Passive non-starters
-    "responsible for", "worked on", "participated in",
+    "responsible for", "worked on", "was involved in",
     "in order to", "i am passionate", "i am passionate about",
     # ── Sapling-flagged resume/CL structural patterns ────────────
     # Transition openers — Sapling's strongest signal in professional docs
@@ -44,8 +46,7 @@ BANNED_WORDS: List[str] = [
     "detail-oriented", "highly motivated", "passionate professional",
     "self-motivated", "self-starter",
     # Vague bullet phrases — Sapling flags these as template fills
-    "played a key role", "contributed to the success",
-    "helped to achieve", "was involved in",
+    "played a key role", "contributed to the success", "helped to achieve",
     # Hedge/filler phrases
     "needless to say", "it is worth noting", "it is important to note",
     "i believe that", "i feel that",
@@ -73,12 +74,17 @@ Your only job is to check keyword coverage — nothing else.
 ━━ ATS SCORE METHODOLOGY (start at 100, deduct strictly) ━━
 1. Read the JD carefully. Extract every unique: tool name, methodology, role requirement,
    domain skill, certification, software, abbreviation.
-2. Check whether each extracted item appears VERBATIM in the candidate document.
-3. Deduct at least 5 points per missing named JD item.
+2. Classify each item:
+   • HARD (named tools, software, programming languages, certifications) → deduct 8 if missing
+   • DOMAIN (methodologies, domain skills, role-specific processes) → deduct 5 if missing
+   • SOFT (communication, teamwork, willingness to learn, cultural fit) → deduct 2 if missing
+3. Check whether each extracted item appears VERBATIM in the candidate document.
 4. Deduct 3 points if the item appears as a synonym or wrong capitalisation instead of
    the exact form (e.g. JD says "data modeling" but doc says "data architecture").
 5. Award no partial credit for vague mentions — "BI tools" does NOT cover "Power BI".
-6. Score conservatively. A recruiter running a keyword search will verify your work.
+6. Do NOT deduct for soft skills that are inherently demonstrated by the CV structure
+   (e.g. "attention to detail" is shown by a well-formatted CV, not a keyword match).
+7. Score conservatively on hard and domain items; be lenient on soft items.
 
 ━━ GERMAN ↔ ENGLISH EQUIVALENCE ━━
 Many job descriptions are written in German. When comparing JD keywords to the document:

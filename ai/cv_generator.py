@@ -559,7 +559,7 @@ class CVGenerator:
         )
 
     async def generate_cv_content(
-        self, job: JobListing, feedback: str = "", jd_keywords: list | None = None
+        self, job: JobListing, feedback: str = "", jd_keywords: list | None = None, jd_focus: str = ""
     ) -> Dict:
         prompt = get_prompt("cv_prompt").format(
             title=job.title,
@@ -567,6 +567,9 @@ class CVGenerator:
             location=job.location,
             description=job.description[:5000] if job.description else "Not provided.",
         )
+        if jd_focus:
+            # Strategic brief goes FIRST — Claude reads the writing brief before the JD
+            prompt = f"{jd_focus}\n\n" + prompt
         if jd_keywords:
             kw_block = (
                 f"\n\n{'='*50}\n"
@@ -628,7 +631,7 @@ class CVGenerator:
     async def generate_cl_content(
         self, job: JobListing, application_notes: str = "", feedback: str = "",
         jd_keywords: list | None = None, cv_content: dict | None = None,
-        company_fact: str = "",
+        company_fact: str = "", jd_focus: str = "",
     ) -> Dict:
         prompt = get_prompt("cl_prompt").format(
             title=job.title,
@@ -637,6 +640,9 @@ class CVGenerator:
             description=job.description[:4000] if job.description else "Not provided.",
             notes=application_notes or "None",
         )
+        if jd_focus:
+            # Strategic brief goes FIRST — Claude reads the writing brief before the JD
+            prompt = f"{jd_focus}\n\n" + prompt
         if company_fact:
             fact_block = (
                 f"\n\n{'='*50}\n"

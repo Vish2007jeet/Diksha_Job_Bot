@@ -261,7 +261,14 @@ def _build_cv_system() -> str:
         "- Em dash inside bullet descriptions — use comma or period instead\n"
         '- "In order to" → "To"\n\n'
         "LANGUAGE RULE (absolute — zero exceptions):\n"
-        "Write in English only. If the job description is in German, translate every term before writing:\n"
+        "Write in English only. Every word in every field — summary, competencies, bullets, project descriptions — must be English.\n"
+        "CORE COMPETENCIES are the most common failure point: never paste a German JD term into the list.\n"
+        "  ✗ WRONG: 'Statistiksoftware (Excel, Python)' · 'Qualitätssicherung der Daten' · 'datenbasierte Entscheidungen'\n"
+        "           'Wirtschaftspsychologie & Behavioural Insights' · 'Künstliche Intelligenz (Exposure)' · 'Teilprojekte'\n"
+        "  ✓ RIGHT: 'Statistical Software (Excel, Python)' · 'Data Quality Assurance' · 'Data-Driven Decision Making'\n"
+        "           'Business Psychology & Behavioural Insights' · 'Artificial Intelligence (Exposure)' · 'Sub-project Coordination'\n"
+        "Never append a German parenthetical after an English term — 'Data Quality Assurance (Qualitätssicherung der Daten)' is wrong;\n"
+        "write 'Data Quality Assurance' only. If the JD is in German, translate every term before writing:\n"
         "  Werkstudent → Working Student\n"
         "  Praktikum → Internship\n"
         "  Masterarbeit → Master Thesis\n"
@@ -418,7 +425,8 @@ Act as a 15+ year experienced ATS CV writer. The output must be practical, relat
 
 STRICT RULES — follow exactly, never do extra, never do less:
 1. Professional Summary: exactly ~60 words, keyword-rich, role-aligned to the JD. HARD CAP: ≤ 65 words. Bold 2–3 JD keywords inline using **double asterisks**. Count before outputting.
-2. Core Competencies: comma- or pipe-separated list of ALL JD tools, methodologies, and domain skills — no word cap. Include every relevant keyword from the JD. Bold every TOOL name inline using **double asterisks** (e.g. **Power BI**, **Python (Pandas)**, **SQL**, **SAP FI/CO**). Leave methodologies and domain terms unbold.
+2. Core Competencies: separator-separated list of ALL JD tools, methodologies, and domain skills — no word cap. Include every relevant keyword from the JD. Bold every TOOL name inline using **double asterisks** (e.g. **Power BI**, **Python (Pandas)**, **SQL**, **SAP FI/CO**). Leave methodologies and domain terms unbold.
+   ENGLISH ONLY — zero German words allowed, not even in parentheses. Translate every German JD term before including it. Never write "Term (Deutsches Wort)" — write "Term" only.
 3. Each role: exactly 4 bullets. FORMAT: ONE complete sentence per bullet, action-verb led — no "Label:" prefix, no bold opener, no colon in the first 30 characters. Inline **bold** allowed ONLY for JD keywords mid-sentence.
    — Plain prose, written the way a real recruiter expects to read a CV.
    — HARD CAP per bullet: ≤ 30 words.

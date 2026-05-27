@@ -196,6 +196,51 @@ def _check_cv_word_counts(cv_content: dict) -> List[str]:
     return violations
 
 
+# ── Competencies German sanitiser ─────────────────────────────
+# Safety net: strip any German words that slipped through the generation prompt.
+# Catches German characters (ü ö ä ß Ü Ö Ä) — guaranteed non-English.
+
+_GERMAN_CHARS_RE  = re.compile(r'[üöäßÜÖÄ]')
+_GERMAN_PAREN_RE  = re.compile(r'\s*\([^)]*[üöäßÜÖÄ][^)]*\)')
+
+
+def _sanitize_competencies(text: str) -> str:
+    """
+    Remove German text from the competencies string:
+      1. Strip parentheticals that contain German chars
+         e.g. "Data Quality Assurance (Qualitätssicherung der Daten)"
+              → "Data Quality Assurance"
+      2. Drop any whole item that still contains German chars after step 1.
+    Preserves bold markers (**...**) and the separator style (· or | or ,).
+    """
+    if not text:
+        return text
+
+    # Step 1 — strip German parentheticals inline
+    text = _GERMAN_PAREN_RE.sub('', text)
+
+    # Step 2 — split, filter, rejoin
+    if ' · ' in text:
+        sep = ' · '
+    elif ' | ' in text:
+        sep = ' | '
+    else:
+        sep = ', '
+
+    cleaned = []
+    for item in text.split(sep):
+        item = item.strip()
+        if not item:
+            continue
+        plain = re.sub(r'\*\*', '', item)          # strip bold markers for the check
+        if _GERMAN_CHARS_RE.search(plain):
+            logger.info(f"[Competencies] Stripped German item: {plain[:60]!r}")
+            continue
+        cleaned.append(item)
+
+    return sep.join(cleaned)
+
+
 # ── Accenture feasibility validator ────────────────────────────
 # Accenture role ran Nov 2022 – Feb 2025 — corporate LLM/AI adoption did not
 # happen at scale in that window. Any AI/LLM term on an Accenture bullet is a
@@ -794,6 +839,10 @@ class DocumentPipeline:
             )
         except Exception as exc:
             return ("error", exc, None)
+
+        # Strip any German that slipped through the generation prompt
+        if content.get("competencies"):
+            content["competencies"] = _sanitize_competencies(content["competencies"])
 
         over_limit = _check_cv_word_counts(content)
         if over_limit:

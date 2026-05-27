@@ -104,7 +104,11 @@ class TemplateEngine:
                         self._replace_bullet(paras[idx], text.strip())
             else:
                 if indices[0] < len(paras):
-                    self._replace_plain(paras[indices[0]], value.strip())
+                    if section in ("project1_desc", "project2_desc"):
+                        # Project objective line — entire sentence is bold
+                        self._replace_project_objective(paras[indices[0]], value.strip())
+                    else:
+                        self._replace_plain(paras[indices[0]], value.strip())
 
         # Update date on last paragraph (Name\tDate: ...)
         self._update_date(paras)
@@ -172,12 +176,37 @@ class TemplateEngine:
 
     def _replace_plain(self, para, text: str) -> None:
         """
-        Replace a paragraph (summary, competencies, project descriptions).
+        Replace a paragraph (summary, competencies).
         Honors inline **bold** markers for JD-keyword highlighting.
         Never forces bold=False — lets the paragraph style inherit naturally.
         """
         text = re.sub(r'</?b>', '', text, flags=re.IGNORECASE)
         self._render_with_bold_markers(para, text)
+
+    def _replace_project_objective(self, para, text: str) -> None:
+        """
+        Replace a project objective line — the entire sentence is bold.
+        Any **markers** are stripped (everything is bold already).
+        """
+        text = re.sub(r'</?b>', '', text, flags=re.IGNORECASE)
+        text = re.sub(r'\*\*', '', text)          # strip ** markers — all bold anyway
+        ref_run = para.runs[0] if para.runs else None
+        for run in para.runs:
+            run.text = ""
+        # Write as a single bold run reusing the first existing run if possible
+        if para.runs:
+            r = para.runs[0]
+            r.text = text
+            r.bold = True
+        else:
+            r = para.add_run(text)
+            r.bold = True
+            if ref_run:
+                try:
+                    r.font.size = ref_run.font.size
+                    r.font.name = ref_run.font.name
+                except Exception:
+                    pass
 
     def _render_with_bold_markers(self, para, text: str) -> None:
         """

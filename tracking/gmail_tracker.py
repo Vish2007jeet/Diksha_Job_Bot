@@ -452,6 +452,7 @@ class GmailTracker:
                     "new_status": status,
                     "subject":    subject[:120],
                     "sender":     sender[:80],
+                    "email_body": body[:3000],
                     "reason":     reason,
                     "key_phrase": result_json.get("key_phrase", ""),
                 })

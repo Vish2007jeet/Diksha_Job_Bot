@@ -1930,10 +1930,23 @@ class BotHandlers:
             parse_mode="HTML",
         )
 
+        # Load persisted email body (saved at detection time) so the generator
+        # can extract and answer any explicit questions in the interview invite.
+        email_body = ""
+        _pending = config.BASE_DIR / "data" / "pending_interviews" / f"{job_id}.json"
+        if _pending.exists():
+            try:
+                import json as _json
+                _data = _json.loads(_pending.read_text(encoding="utf-8"))
+                email_body = _data.get("email_body", "")
+                _pending.unlink(missing_ok=True)   # clean up after reading
+            except Exception as _exc:
+                logger.warning(f"interview_prep: could not read pending email body: {_exc}")
+
         try:
             gen = InterviewPrepGenerator(tracker=self.tracker)
             suffix = folder_name.split(". ", 1)[-1] if ". " in folder_name else folder_name
-            ip_path = await gen.generate(job, out_dir=out_dir, filename_suffix=suffix)
+            ip_path = await gen.generate(job, out_dir=out_dir, filename_suffix=suffix, email_body=email_body)
 
             if not ip_path or not Path(ip_path).exists():
                 await bot.send_message(

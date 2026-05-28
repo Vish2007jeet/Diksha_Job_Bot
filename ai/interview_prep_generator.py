@@ -381,6 +381,42 @@ def _build_cv_star_prompt() -> str:
 
 _PROMPT_CV_STAR = _build_cv_star_prompt()
 
+# ── Part 0: Email Questions prompt ─────────────────────────────────────────────
+
+_PROMPT_EMAIL_QUESTIONS = """\
+You are an interview coach. The candidate received an interview invitation email that \
+contains explicit questions the company wants them to address or prepare.
+
+Extract every explicit question from the email and write a strong, tailored answer \
+for each one. Questions may be stated directly ("Please tell us about..."), \
+as bullet points, or as numbered items.
+
+CANDIDATE PROFILE:
+{profile}
+
+JOB: {title} at {company}
+
+INTERVIEW INVITATION EMAIL:
+{email_body}
+
+Rules:
+- Extract ONLY questions that are explicitly stated in the email — do not invent questions.
+- If the email contains NO explicit questions, return {{"questions": []}} immediately.
+- Each answer must be specific, concrete, and reference Diksha's actual experience.
+- Answers should be 3–5 sentences — detailed enough to speak from, short enough to remember.
+- Sound confident and human. No AI filler phrases.
+
+Return EXACTLY this JSON (no markdown, no code fences):
+{{
+  "questions": [
+    {{
+      "q": "<exact question as stated in the email>",
+      "a": "<tailored 3–5 sentence answer grounded in her real experience>"
+    }}
+  ]
+}}
+"""
+
 # ── HTML helpers ───────────────────────────────────────────────────────────────
 
 def _e(text: str) -> str:
@@ -441,7 +477,7 @@ def _cv_star_qa(item: dict, num: int) -> str:
 
 # ── HTML renderer ──────────────────────────────────────────────────────────────
 
-def _render(hr: dict, star: dict, cv_star: dict, job: JobListing) -> str:
+def _render(hr: dict, star: dict, cv_star: dict, job: JobListing, email_questions: list | None = None) -> str:
     title    = f"Interview Prep — {job.title} @ {job.company}"
     subtitle = f"{config.USER_FULL_NAME} — {hr.get('interview_type', 'Interview')}"
     meta_html = "".join(f"<span>{_e(t)}</span>" for t in hr.get("meta_tags", ["STAR Method"]))
@@ -554,6 +590,27 @@ def _render(hr: dict, star: dict, cv_star: dict, job: JobListing) -> str:
 
     good_luck = _e(hr.get("good_luck_msg", f"Good luck at {job.company}!"))
 
+    # ── Part 0: Email Questions (only if present) ──────────────────
+    email_q_html = ""
+    email_q_nav  = ""
+    if email_questions:
+        email_q_nav = '\n  <a href="#part0">0. Email Q&amp;A</a>'
+        email_q_html = (
+            '\n<!-- PART 0 -->\n'
+            '<section class="part" id="part0" style="border-left: 4px solid var(--accent); padding-left: 16px;">\n'
+            '  <h2>&#x1F4E7; Part 0 &mdash; Questions from Your Interview Invite</h2>\n'
+            '  <p class="part-intro" style="color: var(--accent-dark); font-weight: 600;">'
+            'The company explicitly asked these questions in their email. Prepare word-perfect answers &mdash; '
+            'they WILL ask them.</p>\n'
+        )
+        for item in email_questions:
+            email_q_html += (
+                f'\n<details class="qa" open>\n'
+                f'  <summary><span><span class="q-number" style="background:var(--accent);">★</span> '
+                f'{_e(item.get("q", ""))}</span></summary>\n'
+                f'  <div class="answer">\n<p>{_e(item.get("a", ""))}</p>\n  </div>\n</details>\n'
+            )
+        email_q_html += '</section>\n'
 
     return f"""<!DOCTYPE html>
 <html lang="en">
@@ -566,7 +623,7 @@ def _render(hr: dict, star: dict, cv_star: dict, job: JobListing) -> str:
 <body>
 
 <nav class="topnav">
-  <a href="#top" class="brand">&#x1F4CB; Interview Prep</a>
+  <a href="#top" class="brand">&#x1F4CB; Interview Prep</a>{email_q_nav}
   <a href="#part1">1. HR Questions</a>
   <a href="#part2">2. Behavioural STAR</a>
   <a href="#part3">3. Technical</a>
@@ -605,6 +662,7 @@ def _render(hr: dict, star: dict, cv_star: dict, job: JobListing) -> str:
   <button class="secondary" onclick="window.print()">&#x1F5A8; Print / Save as PDF</button>
 </div>
 
+{email_q_html}
 <!-- PART 1 -->
 <section class="part" id="part1">
   <h2>Part 1 &mdash; Company HR Questions</h2>
@@ -733,6 +791,7 @@ class InterviewPrepGenerator:
         job: JobListing,
         out_dir: Path,
         filename_suffix: str = "",
+        email_body: str = "",
     ) -> Optional[Path]:
         import asyncio
         logger.info(f"[interview_prep] Starting 4-call generation for {job.title} @ {job.company}")
@@ -784,10 +843,34 @@ class InterviewPrepGenerator:
             logger.error(f"[interview_prep] Claude call failed: {exc}")
             return None
 
+        # Call 5 (optional): Extract explicit questions from the interview email
+        email_questions: list = []
+        if email_body and email_body.strip():
+            try:
+                eq_prompt = _PROMPT_EMAIL_QUESTIONS.format(
+                    profile=config.CV_PROFILE_TEXT[:2000],
+                    title=job.title,
+                    company=job.company,
+                    email_body=email_body[:3000],
+                )
+                eq_data = await asyncio.to_thread(
+                    self._call, eq_prompt, job.job_id, "interview_prep_email_q"
+                )
+                email_questions = eq_data.get("questions", [])
+                if email_questions:
+                    logger.info(
+                        f"[interview_prep] Call 5 (Email Q) done -- "
+                        f"{len(email_questions)} question(s) extracted"
+                    )
+                else:
+                    logger.info("[interview_prep] Call 5 (Email Q) — no explicit questions found in email")
+            except Exception as exc:
+                logger.warning(f"[interview_prep] Email question extraction failed (non-fatal): {exc}")
+
         # Merge call 2 + call 3 into one dict for the renderer
         star_data.update(tech_data)
 
-        html_content = _render(hr_data, star_data, cv_star_data, job)
+        html_content = _render(hr_data, star_data, cv_star_data, job, email_questions=email_questions or None)
 
         suffix = filename_suffix or job.company.replace(" ", "_")
         out_path = out_dir / f"Interview_Prep_{suffix}.html"

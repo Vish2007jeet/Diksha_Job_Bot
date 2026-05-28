@@ -637,6 +637,21 @@ class JobOrchestrator:
         _LABELS = {"interviewing": "Interview Invite", "rejected": "Rejection", "offer": "Job Offer"}
 
         for det in detections:
+            # Persist email body for interview detections so the prep generator
+            # can extract any explicit questions the company sent.
+            if det["new_status"] == "interviewing" and det.get("email_body"):
+                import json as _json
+                _pending_dir = config.BASE_DIR / "data" / "pending_interviews"
+                _pending_dir.mkdir(parents=True, exist_ok=True)
+                _pending_file = _pending_dir / f"{det['job_id']}.json"
+                _pending_file.write_text(
+                    _json.dumps({
+                        "subject":    det.get("subject", ""),
+                        "email_body": det["email_body"],
+                    }, ensure_ascii=False, indent=2),
+                    encoding="utf-8",
+                )
+
             icon    = _ICONS.get(det["new_status"], "📧")
             label   = _LABELS.get(det["new_status"], det["new_status"].title())
             old_lbl = det["old_status"].title()

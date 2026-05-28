@@ -70,13 +70,13 @@ You are an email classifier for a job-search assistant.
 Given a job-application reply email (subject + body) and the candidate's list \
 of applied jobs, your task is:
 1. Determine whether this email is about a specific job application.
-2. Identify which job it refers to.
-3. Classify the reply type.
+2. Classify the reply type.
+3. Extract the company and job title AS WRITTEN IN THE EMAIL.
 
 Reply ONLY with a JSON object — no markdown, no explanation:
 {
-  "company":    "<company name or empty string>",
-  "title":      "<job title or empty string>",
+  "company":    "<company name extracted verbatim from the email, or empty string>",
+  "title":      "<job title extracted verbatim from the email, or empty string>",
   "status":     "interviewing" | "rejected" | "offer" | "unknown",
   "reason":     "<one sentence why you chose this status>",
   "key_phrase": "<the single most telling sentence copied verbatim from the email, max 160 chars>"
@@ -92,6 +92,15 @@ Rules:
 - If it is clearly an application-received confirmation, set status = "unknown".
 - Prefer German-language cues when the email is in German.
 - key_phrase must be an exact quote from the email body — not a summary.
+
+CRITICAL — company and title extraction:
+- Extract company and title FROM THE EMAIL TEXT ONLY — read the sender, subject line,
+  and body to find the company name and role title the email is actually about.
+- The applied jobs list is provided only as CONTEXT to help you understand what
+  applications exist — do NOT copy company/title values from that list into your output.
+- If the email mentions "Infineon Technologies" and "Product Marketing", output those
+  exact words — do not substitute a different company or title from the applied list.
+- If the email does not state a job title explicitly, leave title as an empty string.
 """
 
 

@@ -351,7 +351,8 @@ Return EXACTLY this JSON (all keys required, no extras):
 """
 
 # ── CALL 4 PROMPT: CV Bullet-Point STAR Defence ──────────────────────────────
-def _build_cv_star_prompt() -> str:
+def _build_cv_star_prompt(cv_bullets_text: str = "") -> str:
+    bullets = cv_bullets_text or config.CV_BULLETS_TEXT
     return (
         "TARGET ROLE: {title} at {company}\n\n"
         "Generate Part 7 — a STAR-format answer for EVERY bullet point on the candidate's CV.\n"
@@ -368,7 +369,7 @@ def _build_cv_star_prompt() -> str:
         "  a: Action — 2-3 sentences (expand ONLY on what the CV bullet describes; same tools, same verbs)\n"
         "  r: Result — 1-2 sentences (exact CV metric + broader impact for {{company}})\n\n"
         "All answers must sound natural, confident, and human — NOT AI-generated.\n\n"
-        f"CV BULLET TEXT (use as source of truth for Action field):\n\n{config.CV_BULLETS_TEXT}\n\n"
+        f"CV BULLET TEXT (use as source of truth for Action field):\n\n{bullets}\n\n"
         "Return EXACTLY this JSON (no markdown, no code fences, no trailing commas):\n\n"
         "{{\n"
         '  "cv_role1": [{{"bullet": "<summary>", "intro": "", "s": "", "t": "", "a": "", "r": ""}}, ...],\n'
@@ -379,7 +380,7 @@ def _build_cv_star_prompt() -> str:
         "}}\n"
     )
 
-_PROMPT_CV_STAR = _build_cv_star_prompt()
+_PROMPT_CV_STAR = _build_cv_star_prompt()  # fallback constant for backward compat
 
 # ── Part 0: Email Questions prompt ─────────────────────────────────────────────
 
@@ -526,9 +527,12 @@ def _render(hr: dict, star: dict, cv_star: dict, job: JobListing, email_question
     ask_li = "".join(f"<li>{_e(s)}</li>\n" for s in hr.get("p5_ask_them", []))
 
     # ── Part 7: CV Bullet-Point STAR Defence ──────────────────────
+    # Pair section labels with cv_star values positionally — Claude may return
+    # any key names, so we zip by order rather than looking up fixed key names.
     p7 = ""
-    _role_keys = ["cv_role1", "cv_role2", "cv_role3", "cv_role4", "cv_extra"]
-    cv_sections = list(zip(config.CV_STAR_SECTION_LABELS, _role_keys))
+    _fallback_keys = ["cv_role1", "cv_role2", "cv_role3", "cv_role4", "cv_extra"]
+    actual_keys = list(cv_star.keys()) or _fallback_keys
+    cv_sections = list(zip(config.CV_STAR_SECTION_LABELS, actual_keys))
     for heading, key in cv_sections:
         items = cv_star.get(key, [])
         if items:
@@ -732,6 +736,29 @@ def _render(hr: dict, star: dict, cv_star: dict, job: JobListing, email_question
 </html>"""
 
 
+# -- CV text extraction --------------------------------------------------------
+
+def _extract_cv_text_from_folder(out_dir: Path) -> str:
+    """
+    Finds the CV docx in the application folder and returns plain text extracted
+    from it.  Returns empty string on any failure so the caller can fall back to
+    config.CV_BULLETS_TEXT.
+    """
+    import zipfile, re as _re
+    cv_files = sorted(out_dir.glob("CV_*.docx"))
+    if not cv_files:
+        return ""
+    try:
+        with zipfile.ZipFile(cv_files[0]) as z:
+            xml = z.read("word/document.xml").decode("utf-8")
+        text = _re.sub(r"<[^>]+>", " ", xml)
+        text = _re.sub(r"\s+", " ", text).strip()
+        return text
+    except Exception as exc:
+        logger.warning("[interview_prep] CV text extraction failed: %s", exc)
+        return ""
+
+
 # -- Claude call helper --------------------------------------------------------
 
 class InterviewPrepGenerator:
@@ -799,6 +826,15 @@ class InterviewPrepGenerator:
         desc = (job.description or "Not provided.")[:3000]
         fmt = dict(title=job.title, company=job.company, location=job.location, description=desc)
 
+        # Extract bullet text from the actual tailored CV in the application folder.
+        # Falls back to config.CV_BULLETS_TEXT if no CV docx is found.
+        cv_text = _extract_cv_text_from_folder(out_dir)
+        if cv_text:
+            logger.info("[interview_prep] CV text extracted from application folder (%d chars)", len(cv_text))
+        else:
+            logger.warning("[interview_prep] No CV docx found in %s — using config cv_bullets fallback", out_dir)
+        cv_star_prompt = _build_cv_star_prompt(cv_bullets_text=cv_text)
+
         try:
             # Call 1: HR Questions + Ask Them
             hr_data = await asyncio.to_thread(
@@ -827,10 +863,11 @@ class InterviewPrepGenerator:
             )
             logger.info(f"[interview_prep] Call 3 (Tech+CVD) done -- {len(tech_data)} top-level keys")
 
-            # Call 4: CV Bullet-Point STAR Defence (18 bullets)
+            # Call 4: CV Bullet-Point STAR Defence — uses text from the actual
+            # tailored CV docx in the application folder, not the global config bullets.
             cv_star_data = await asyncio.to_thread(
                 self._call,
-                _PROMPT_CV_STAR.format(title=job.title, company=job.company),
+                cv_star_prompt.format(title=job.title, company=job.company),
                 job.job_id,
                 "interview_prep_cv_star",
             )

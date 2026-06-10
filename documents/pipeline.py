@@ -17,7 +17,7 @@ from typing import List
 
 import config
 from ai.cv_generator import CVGenerator
-from ai.evaluator import DocumentEvaluator
+from ai.evaluator import DocumentEvaluator, check_banned_words, cv_dict_to_text, cl_dict_to_text
 from ai.humanizer import ContentHumanizer
 from documents.exporter import DocumentExporter
 from documents.template_engine import TemplateEngine
@@ -28,7 +28,7 @@ _name_slug = config.USER_NAME_SHORT.replace(" ", "_")
 CV_FILENAME = f"CV_{_name_slug}"
 CL_FILENAME = f"CL_{_name_slug}"
 
-_MAX_RETRIES        = 2     # up to 2 retries = 3 total attempts per document
+_MAX_RETRIES        = 1     # up to 1 retry = 2 total attempts per document
 _FEEDBACK_MAX_CHARS = 1500  # cap feedback injected into retry prompts to avoid context overflow
 
 _MODEL_SHORT = {
@@ -828,11 +828,8 @@ class DocumentPipeline:
 
     async def _humanize_and_pick_best_cv(self, job_id: str, jd: str, raw_content: dict):
         """
-        Evaluate raw + humanized in parallel; return whichever wins _better_eval.
-
-        Why: the humanizer occasionally strips ATS keywords or introduces banned
-        filler. Without this guard the only recovery path is a full pipeline
-        retry. Costs one extra evaluator call per attempt when humanize is on.
+        Humanize, pick version with free banned-word check, then run ONE ATS call.
+        Any ATS degradation from humanizing will be caught by the retry loop.
         """
         if not config.HUMANIZE_ENABLED:
             logger.info("CV humanizer skipped (disabled via /humanize)")
@@ -840,17 +837,19 @@ class DocumentPipeline:
             return raw_content, ev
 
         humanized = await self._humanizer.humanize_cv(job_id, raw_content)
-        raw_eval, hum_eval = await asyncio.gather(
-            self._evaluator.evaluate_cv(job_id, jd, raw_content),
-            self._evaluator.evaluate_cv(job_id, jd, humanized),
-        )
-        if _better_eval(hum_eval, raw_eval):
-            return humanized, hum_eval
-        logger.warning(
-            f"CV humanizer degraded quality (raw ATS={raw_eval.ats_score} banned={raw_eval.banned_words_found or 'none'} "
-            f"vs humanized ATS={hum_eval.ats_score} banned={hum_eval.banned_words_found or 'none'}) — falling back to raw"
-        )
-        return raw_content, raw_eval
+
+        raw_banned = check_banned_words(cv_dict_to_text(raw_content))
+        hum_banned = check_banned_words(cv_dict_to_text(humanized))
+        if len(hum_banned) > len(raw_banned):
+            logger.warning(
+                f"CV humanizer introduced banned words ({hum_banned}) — falling back to raw"
+            )
+            chosen = raw_content
+        else:
+            chosen = humanized
+
+        ev = await self._evaluator.evaluate_cv(job_id, jd, chosen)
+        return chosen, ev
 
     async def _cv_one_candidate(self, job, jd: str, feedback: str, jd_keywords: list | None, jd_focus: str = ""):
         """
@@ -988,10 +987,8 @@ class DocumentPipeline:
 
     async def _humanize_and_pick_best_cl(self, job_id: str, jd: str, raw_content: dict):
         """
-        Evaluate raw + humanized in parallel; return whichever wins.
-        Prefer structurally-clean candidates first; then _better_eval.
-        Falls back to raw if humanizer breaks paragraph endings, banned openers,
-        introduces banned words, or drops ATS.
+        Humanize, pick version with free checks (structure + banned words), then run ONE ATS call.
+        Any ATS degradation from humanizing will be caught by the retry loop.
         """
         if not config.HUMANIZE_ENABLED:
             logger.info("CL humanizer skipped (disabled via /humanize)")
@@ -999,26 +996,26 @@ class DocumentPipeline:
             return raw_content, ev
 
         humanized = await self._humanizer.humanize_cl(job_id, raw_content)
-        raw_eval, hum_eval = await asyncio.gather(
-            self._evaluator.evaluate_cl(job_id, jd, raw_content),
-            self._evaluator.evaluate_cl(job_id, jd, humanized),
-        )
 
         raw_clean = not self._cl_structural_issues(raw_content)
         hum_clean = not self._cl_structural_issues(humanized)
-        if hum_clean and not raw_clean:
-            return humanized, hum_eval
         if raw_clean and not hum_clean:
             logger.warning("CL humanizer broke structure (dangling/banned opener) — falling back to raw")
-            return raw_content, raw_eval
+            ev = await self._evaluator.evaluate_cl(job_id, jd, raw_content)
+            return raw_content, ev
 
-        if _better_eval(hum_eval, raw_eval):
-            return humanized, hum_eval
-        logger.warning(
-            f"CL humanizer degraded quality (raw ATS={raw_eval.ats_score} banned={raw_eval.banned_words_found or 'none'} "
-            f"vs humanized ATS={hum_eval.ats_score} banned={hum_eval.banned_words_found or 'none'}) — falling back to raw"
-        )
-        return raw_content, raw_eval
+        raw_banned = check_banned_words(cl_dict_to_text(raw_content))
+        hum_banned = check_banned_words(cl_dict_to_text(humanized))
+        if len(hum_banned) > len(raw_banned):
+            logger.warning(
+                f"CL humanizer introduced banned words ({hum_banned}) — falling back to raw"
+            )
+            chosen = raw_content
+        else:
+            chosen = humanized
+
+        ev = await self._evaluator.evaluate_cl(job_id, jd, chosen)
+        return chosen, ev
 
     async def _cl_one_candidate(self, job, jd: str, application_notes: str, feedback: str,
                                  jd_keywords: list | None, cv_content: dict | None, company_fact: str,

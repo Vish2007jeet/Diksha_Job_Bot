@@ -218,16 +218,9 @@ class JobTracker:
                     updated_at  TEXT
                 )
             """)
-            # Deduplicate existing rows before creating unique index (keep latest per pair)
-            conn.execute("""
-                DELETE FROM api_costs WHERE id NOT IN (
-                    SELECT MAX(id) FROM api_costs GROUP BY job_id, call_type
-                )
-            """)
-            conn.execute(
-                "CREATE UNIQUE INDEX IF NOT EXISTS idx_api_costs_job_call "
-                "ON api_costs(job_id, call_type)"
-            )
+            # Drop the old unique index (if it exists from a prior schema) so that
+            # retry attempts for the same (job_id, call_type) are stored separately.
+            conn.execute("DROP INDEX IF EXISTS idx_api_costs_job_call")
             conn.commit()
             for col, typedef in [
                 ("app_number",            "INTEGER DEFAULT 0"),
@@ -255,7 +248,7 @@ class JobTracker:
     ) -> None:
         with sqlite3.connect(DB_PATH) as conn:
             conn.execute(
-                "INSERT OR IGNORE INTO api_costs (job_id, call_type, model, input_tokens, output_tokens, cost_usd, created_at) "
+                "INSERT INTO api_costs (job_id, call_type, model, input_tokens, output_tokens, cost_usd, created_at) "
                 "VALUES (?, ?, ?, ?, ?, ?, ?)",
                 (job_id, call_type, model, input_tokens, output_tokens, cost_usd,
                  datetime.utcnow().isoformat()),

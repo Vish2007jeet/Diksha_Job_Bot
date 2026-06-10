@@ -104,41 +104,68 @@ async def _refetch_description(url: str) -> str:
 
 
 def _build_expense_report(job, tracker) -> str:
-    """Build a Telegram HTML expense report for one application."""
+    """
+    Build a Telegram HTML expense report for one application.
+
+    Each pipeline stage (JD analysis, CV generate, CV humanizer, …) is shown once.
+    When a stage ran more than once (retries), tokens and cost are summed and a ×N
+    badge is appended so the true spend across all attempts is visible.
+    """
     if not tracker:
         return ""
     try:
-        costs      = tracker.get_job_costs(job.job_id)
-        app_total  = sum(c["cost_usd"] for c in costs)
+        costs       = tracker.get_job_costs(job.job_id)
         month_total = tracker.get_month_total()
-        budget     = float(getattr(config, "API_MONTHLY_BUDGET", 0) or 0)
+        budget      = float(getattr(config, "API_MONTHLY_BUDGET", 0) or 0)
+
+        # ── Aggregate per stage (preserve insertion order) ────────
+        # Each element: (call_type, model, total_in, total_out, total_cost, attempts)
+        from collections import OrderedDict
+        stages: "OrderedDict[str, dict]" = OrderedDict()
+        for c in costs:
+            ct = c["call_type"]
+            if ct not in stages:
+                stages[ct] = {
+                    "model":         c["model"],
+                    "input_tokens":  0,
+                    "output_tokens": 0,
+                    "cost_usd":      0.0,
+                    "attempts":      0,
+                }
+            stages[ct]["input_tokens"]  += c["input_tokens"]
+            stages[ct]["output_tokens"] += c["output_tokens"]
+            stages[ct]["cost_usd"]      += c["cost_usd"]
+            stages[ct]["attempts"]      += 1
+
+        app_total = sum(s["cost_usd"] for s in stages.values())
 
         lines = [
             "💰 <b>Generation Expense</b>",
             f"<code>{job.company[:30]} — {job.title[:35]}</code>",
             "─" * 34,
         ]
-        for c in costs:
-            label = _CALL_LABEL.get(c["call_type"], c["call_type"].ljust(22))
-            model = _MODEL_SHORT.get(c["model"], c["model"][-12:])
-            tok   = f"{c['input_tokens']:,}↑ {c['output_tokens']:,}↓"
+
+        for ct, s in stages.items():
+            label   = _CALL_LABEL.get(ct, ct.ljust(22)).rstrip()
+            model   = _MODEL_SHORT.get(s["model"], s["model"][-12:])
+            tok     = f"{s['input_tokens']:,}↑  {s['output_tokens']:,}↓"
+            retry_badge = f" <b>×{s['attempts']}</b>" if s["attempts"] > 1 else ""
             lines.append(
-                f"  {label} <i>{model}</i>\n"
-                f"           {tok}   <b>${c['cost_usd']:.4f}</b>"
+                f"  {label}{retry_badge}  <i>{model}</i>\n"
+                f"             {tok}   <b>${s['cost_usd']:.4f}</b>"
             )
+
         lines += [
             "─" * 34,
-            "  Sapling AI detection:  ~$0.02 (external)",
-            "─" * 34,
-            f"  This application:  <b>${app_total:.4f}</b>",
+            f"  This application:      <b>${app_total:.4f}</b>",
         ]
         if budget > 0:
             pct = month_total / budget * 100
             lines.append(
-                f"  Month to date:      <b>${month_total:.2f}</b> / ${budget:.2f} ({pct:.0f}%)"
+                f"  Month to date:         <b>${month_total:.4f}</b> / ${budget:.2f} ({pct:.1f}%)"
             )
         else:
-            lines.append(f"  Month to date:      <b>${month_total:.2f}</b>")
+            lines.append(f"  Month to date:         <b>${month_total:.4f}</b>")
         return "\n".join(lines)
     except Exception as exc:
         logger.warning(f"Expense report failed: {exc}")
@@ -253,7 +280,7 @@ _ACCENTURE_BANNED_RE = re.compile(
     r"AI\s+Governance|generative\s+AI|GenAI|"
     r"artificial\s+intelligence|machine\s+learning|"
     r"MS365\s+Copilot|Microsoft\s+Copilot|"
-    r"vector\s+(database|DB|store)|embeddings?\s+model"
+    r"vector\s+(?:database|DB|store)|embeddings?\s+model"
     r")\b",
     re.IGNORECASE,
 )

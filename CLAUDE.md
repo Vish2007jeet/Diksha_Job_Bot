@@ -30,7 +30,7 @@ Three concurrent services start from `main.py`:
 
 **Two-layer keyword config**: `.env` / `config.py` holds first-run seeds only. Live values are in `data/keywords.json` and managed via Telegram commands (`/keywords`, `/tier1`, `/tier2`, `/tier3`). `utils/keywords.py → KeywordManager` is the single access point — always use it, not `config.*_KEYWORDS` directly.
 
-> **⚠ Domain check before quoting any keyword.** The `TIER1/2/3_KEYWORDS` lists in `config.py` are STALE automotive seeds (Vehicle Dynamics, MBD, CarMaker, etc.) left over from an earlier version of the bot. The user's **actual live domain is Business Analytics / BI / Controlling / Data / Project Management** (Power BI, SAP, Python, SQL, Tableau, Excel). Before mentioning any keyword, role example, or "your domain is X" claim to the user, read `data/keywords.json` — never quote from `config.py` seeds. The `TARGET_COMPANIES` / `WORKDAY_SITES` / `COMPANY_SITES` lists in `config.py` are also automotive-biased and do not reflect current targeting.
+> **⚠ Domain check before quoting any keyword.** The user's live domain is **Business Analytics / BI / Controlling / Data / Project Management** (Power BI, SAP, Python, SQL, Tableau, Excel). Source of truth for the live keyword taxonomy is `data/keywords.json` (edited via `/tier1 /tier2 /tier3` in Telegram) — always read that before quoting any keyword, tool, or role example. The `TIER1/2/3_KEYWORDS`, `TARGET_COMPANIES`, `WORKDAY_SITES`, and `COMPANY_SITES` lists in `config.py` are only first-run seeds; they now reflect the BA/BI/Data domain but should not be treated as authoritative — read `keywords.json` and inspect `TARGET_COMPANIES` at runtime if you need the current list.
 
 **Document generation** (`documents/pipeline.py`): On Apply — 4-stage pipeline:
 1. **Generate** — `CVGenerator` (Sonnet) fills JSON for CV + CL concurrently
@@ -76,12 +76,6 @@ Folder name pattern: `{N}. {Company}_{RoleType}_{PositionKW}`. Interview prep HT
 | `MANUAL_INFO` | 10 | `/manual` step 1: "Company \| Title \| Location" |
 | `MANUAL_JD` | 11 | `/manual` step 2: paste job description |
 | `SETPROMPT_RECEIVE` | 20 | `/setprompt`: waiting for new prompt text |
-
-## Deeper Docs
-
-- [Architecture](.claude/docs/architecture.md) — services, pipelines, scoring, job lifecycle
-- [Configuration](.claude/docs/config.md) — `.env` variables, two-layer config pattern
-- [Scrapers](.claude/docs/scrapers.md) — LinkedIn auth, disabled sources, anti-blocking, Google OAuth
 
 ## Cost Tracking
 

@@ -99,40 +99,35 @@ SEARCH_LANGUAGE: str = _search.get("language") or os.getenv("SEARCH_LANGUAGE", "
 # These lists only apply when keywords.json does not yet exist.
 # If user_config.yaml has search.tier1_keywords, those are used instead.
 TIER1_KEYWORDS: List[str] = _search.get("tier1_keywords") or [
-    # Vehicle Dynamics & Chassis
-    "Vehicle Dynamics", "Fahrzeugdynamik", "Multi Body Dynamics", "MBD", "Adams",
-    "Suspension", "Fahrwerk", "Chassis Development", "Fahrwerksentwicklung",
-    "Anti-roll Bar", "Stabilisator", "Tyre Load Sensitivity", "NVH",
-    # EV & Powertrain
-    "EV Powertrain", "Elektroantrieb", "Battery Systems", "Batteriesystem",
-    "HV Battery", "Hochvoltbatterie", "PHEV", "E-Mobility", "Elektromobilität",
-    "Electric Motor", "Elektromotor", "Drivetrain", "Antriebsstrang",
-    # Brake & Steer by Wire
-    "Brake-by-Wire", "BBW", "Steer-by-Wire", "SBW", "Brake Systems", "Bremssystem",
     # Job type
-    "Werkstudent", "Working Student", "Masterarbeit", "Master Thesis",
-    "Praktikum", "Internship", "Abschlussarbeit",
+    "Werkstudent", "Working Student",
+    # Core roles (Business Analytics / BI / Controlling / Data / PM)
+    "Business Analytics", "Business Intelligence", "BI Analyst", "Data Analyst",
+    "Controlling", "Project Manager", "Projektmanager",
+    "Project Management", "Projektmanagement", "PMO",
 ]
 
 TIER2_KEYWORDS: List[str] = _search.get("tier2_keywords") or [
-    # Simulation tools
-    "MATLAB", "Simulink", "ANSYS", "Ansys Workbench", "FEA", "OptiSLang",
-    "CATIA", "CATIA V5", "SolidWorks", "CarMaker", "CarSim", "dSPACE", "HIL",
-    # Domain
-    "Thermal Management", "Thermomanagement", "NVH", "Actuator", "Aktorik",
-    "Power Electronics", "Leistungselektronik", "BMS", "Battery Management",
-    # General engineering
-    "Python", "Power BI", "CAE", "CFD", "R&D", "Forschung",
-    "Vehicle Testing", "Erprobung", "Prototype", "Prototyp",
-    "Formula Student", "Motorsport", "Powertrain Engineering",
+    # BI / reporting tools
+    "Power BI", "Power BI Desktop", "DAX", "Tableau", "Looker", "Qlik",
+    # ERP / data platforms
+    "SAP", "SAP BW", "SAP BO",
+    # Languages / analysis
+    "Python", "SQL", "Excel",
+    # Domain concepts
+    "KPI", "Dashboard", "Forecasting", "Data Analysis", "Datenanalyse",
+    "Reporting", "Data Warehouse", "Data Modeling", "ETL", "OLAP",
 ]
 
 TIER3_KEYWORDS: List[str] = _search.get("tier3_keywords") or [
-    "Power Electronics", "Leistungselektronik", "Electric Motor", "E-Maschine",
-    "BMS", "Battery Management", "Prototype Development", "Series Development",
-    "OEM", "Automotive", "Fahrzeugentwicklung",
-    "SQL", "Excel VBA", "SAP", "Tableau", "UG-NX", "Inventor",
-    "SolidWorks Flow Simulation",
+    # Adjacent business domains
+    "Supply Chain", "Procurement", "Stakeholder Management", "Risk Management",
+    "ERP", "Master Data", "Data Governance", "Data Literacy",
+    # Delivery / PM
+    "Agile", "Scrum", "JIRA", "MS Project", "Milestone",
+    # Automation / advanced tooling
+    "Process Automation", "Power Query", "Power Automate", "VBA", "Pandas",
+    "Azure", "Google Data Studio", "MicroStrategy",
 ]
 
 _settings = _cfg.get("settings", {})

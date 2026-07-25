@@ -1,18 +1,19 @@
 """
-Target Company scraper — finds jobs at specific EV/tech OEMs in Germany.
+Target Company scraper — finds Werkstudent jobs at a configured list of
+BA/BI/Controlling/Data-heavy employers in Germany (e.g. Check24, Celonis,
+DATEV, Allianz Technology, msg systems).
 
 Strategy
 --------
 1.  LinkedIn guest API — searches "{company_name} {job_keyword}" in Germany
     and strictly filters results so only that company's postings survive.
-    Uses a 7-day window (vs 3-day for generic search) so no posting is missed.
 
 2.  Configured via config.TARGET_COMPANIES — each entry specifies:
       - name          : canonical display name (used for filtering)
       - name_variants : list of aliases the company uses on LinkedIn
-                        (e.g. "Tesla", "Tesla Motors", "Tesla Germany")
-      - search_term   : keyword injected alongside company name
-                        (keeps results relevant, e.g. "engineering intern")
+                        (e.g. "Check24", "CHECK24", "Check24 Vergleichsportal")
+      - search_terms  : keywords injected alongside company name
+                        (e.g. "Werkstudent Business Analytics")
 
 Usage
 -----
@@ -66,9 +67,10 @@ def _company_matches(result_company: str, name_variants: List[str]) -> bool:
 class TargetCompanyScraper(BaseScraper):
     """
     Dedicated LinkedIn scraper for a configured list of target companies.
-    Designed to catch *all* relevant engineering/student roles posted by each
-    company, regardless of whether the title matches our keyword taxonomy.
-    AI scorer handles relevance ranking after ingestion.
+    Designed to catch *all* relevant Werkstudent roles posted by each
+    company (BA / BI / Controlling / Data / PM focus), regardless of whether
+    the title matches our keyword taxonomy. AI scorer handles relevance
+    ranking after ingestion.
     """
 
     source_name = "target_companies"

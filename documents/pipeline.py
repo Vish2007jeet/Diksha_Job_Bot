@@ -31,12 +31,18 @@ CL_FILENAME = f"CL_{_name_slug}"
 _MAX_RETRIES        = 1     # up to 1 retry = 2 total attempts per document
 _FEEDBACK_MAX_CHARS = 1500  # cap feedback injected into retry prompts to avoid context overflow
 
-_MODEL_SHORT = {
-    "claude-haiku-4-5-20251001": "Haiku 4.5",
-    "claude-haiku-4-5":          "Haiku 4.5",
-    "claude-sonnet-4-6":         "Sonnet 4.6",
-    "claude-opus-4-7":           "Opus 4.7",
-}
+def _short_model_name(model_id: str) -> str:
+    """
+    Convert an Anthropic model ID like 'claude-sonnet-4-6' or
+    'claude-haiku-4-5-20251001' into a compact human label 'Sonnet 4.6' /
+    'Haiku 4.5'. Falls back to the raw ID if the pattern doesn't match, so
+    unknown / future model IDs still get labelled (not silently truncated).
+    """
+    m = re.match(r"claude-([a-z]+)-(\d+)-(\d+)", model_id or "")
+    if not m:
+        return model_id or "?"
+    family, major, minor = m.groups()
+    return f"{family.capitalize()} {major}.{minor}"
 _CALL_LABEL = {
     "jd_analysis":  "Stage 1 · JD Analysis ",
     "cv":           "Stage 2 · CV Generate  ",
@@ -147,7 +153,7 @@ def _build_expense_report(job, tracker) -> str:
 
         for ct, s in stages.items():
             label   = _CALL_LABEL.get(ct, ct.ljust(22)).rstrip()
-            model   = _MODEL_SHORT.get(s["model"], s["model"][-12:])
+            model   = _short_model_name(s["model"])
             tok     = f"{s['input_tokens']:,}↑  {s['output_tokens']:,}↓"
             retry_badge = f" <b>×{s['attempts']}</b>" if s["attempts"] > 1 else ""
             lines.append(

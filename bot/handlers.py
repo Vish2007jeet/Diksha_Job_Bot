@@ -64,9 +64,18 @@ class BotHandlers:
         self.tracker = tracker
         self.orchestrator = orchestrator
         self.pipeline = DocumentPipeline(tracker=tracker)
+        self._dream_pipeline: DocumentPipeline | None = None  # lazy Opus pipeline
         self.drive = DriveUploader()
         self._pending_apply: dict = {}   # chat_id → job_id (notes flow)
         self._active_tasks: set = set()
+
+    def _pipeline_for(self, dream: bool) -> DocumentPipeline:
+        """Return the Sonnet pipeline, or a lazily-built Opus one for a dream apply."""
+        if not dream:
+            return self.pipeline
+        if self._dream_pipeline is None:
+            self._dream_pipeline = DocumentPipeline(tracker=self.tracker, gen_model=config.DREAM_MODEL)
+        return self._dream_pipeline
 
     # ── /start ─────────────────────────────────────────────────
 
@@ -1407,6 +1416,9 @@ class BotHandlers:
             elif action == "applynow":
                 await self._process_apply(query, job_id, notes="")
 
+            elif action == "applyopus":
+                await self._process_apply(query, job_id, notes="", dream=True)
+
             elif action == "skip":
                 self.tracker.update_status(job_id, JobStatus.SKIPPED)
                 self.tracker.record_feedback(job_id, "skipped")   # #4 feedback loop
@@ -1624,15 +1636,19 @@ class BotHandlers:
 
     # ── Private Apply Flow ─────────────────────────────────────
 
-    async def _process_apply(self, query, job_id: str, notes: str) -> None:
+    async def _process_apply(self, query, job_id: str, notes: str, dream: bool = False) -> None:
         job_dict = self.tracker.get_job(job_id)
         if not job_dict:
             await query.message.reply_html("❓ Job not found.")
             return
         job = self._dict_to_job(job_dict)
         await query.message.reply_html(application_confirmed(job))
+        if dream:
+            await query.message.reply_html(
+                f"💎 <b>Dream Apply</b> — generating with <code>{config.DREAM_MODEL}</code> (premium quality, higher cost)."
+            )
         task = asyncio.create_task(
-            self._generate_and_send_docs(query.message.chat_id, job, notes)
+            self._generate_and_send_docs(query.message.chat_id, job, notes, dream=dream)
         )
         self._active_tasks.add(task)
         task.add_done_callback(self._active_tasks.discard)
@@ -1669,7 +1685,7 @@ class BotHandlers:
                 await asyncio.sleep(delay)
                 delay = min(delay * 2, 30.0)
 
-    async def _generate_and_send_docs(self, chat_id: int, job: JobListing, notes: str) -> None:
+    async def _generate_and_send_docs(self, chat_id: int, job: JobListing, notes: str, dream: bool = False) -> None:
         from telegram import Bot
         bot: Bot = self._bot_ref
 
@@ -1679,7 +1695,8 @@ class BotHandlers:
             # Get the next application number BEFORE generating
             app_number = self.tracker.next_app_number()
 
-            result = await self.pipeline.create_application_docs(
+            pipeline = self._pipeline_for(dream)
+            result = await pipeline.create_application_docs(
                 job, notes, app_number=app_number
             )
 

@@ -18,7 +18,7 @@ python email_monitor.py  # scan Gmail for application replies
 
 Three concurrent services start from `main.py`:
 1. **Telegram Bot** (`bot/telegram_bot.py`) — polling via `python-telegram-bot`
-2. **FastAPI server** (`api/server.py`) — remote triggers (Bearer token auth); runs in a background thread
+2. **FastAPI server** (`api/server.py`) — remote triggers on port 8000, `Authorization: Bearer <api_secret_key>` (or `?secret=` query); runs in a background thread
 3. **APScheduler** — auto-scan every `SCAN_INTERVAL_HOURS`, Gmail check + pending notification flush every 30 min
 
 **Scan pipeline** (`orchestrator.py → JobOrchestrator.run_scan`):
@@ -32,7 +32,12 @@ Three concurrent services start from `main.py`:
 
 > **⚠ Domain check before quoting any keyword.** The user's live domain is **Business Analytics / BI / Controlling / Data / Project Management** (Power BI, SAP, Python, SQL, Tableau, Excel). Source of truth for the live keyword taxonomy is `data/keywords.json` (edited via `/tier1 /tier2 /tier3` in Telegram) — always read that before quoting any keyword, tool, or role example. The `TIER1/2/3_KEYWORDS`, `TARGET_COMPANIES`, `WORKDAY_SITES`, and `COMPANY_SITES` lists in `config.py` are only first-run seeds; they now reflect the BA/BI/Data domain but should not be treated as authoritative — read `keywords.json` and inspect `TARGET_COMPANIES` at runtime if you need the current list.
 
-**Document generation** (`documents/pipeline.py`): On Apply — 4-stage pipeline:
+**CV/CL template convention**: Base templates live at `templates/base/{CV,CL}.docx` (user-supplied, not in repo). Runs highlighted in Word (default YELLOW; configurable via `settings.cv_highlight_color`) are the ONLY text Claude rewrites — everything else is preserved verbatim. When editing `documents/`, never widen the edit surface beyond highlighted runs.
+
+**Config-driven prompts**: `ai/cv_generator.py` builds `_CV_SYSTEM` / `_CL_SYSTEM` at import time by interpolating from the `profile:` block in `user_config.yaml`. Named-block employer metadata (`profile.chintamani`, `profile.accenture`) supplies dates/seniority/verbs/scope; `profile.ai_tool_timeline_gate` + `profile.ai_tool_terms` drive the AI-era timeline gate; `profile.education`, `profile.languages`, `profile.projects`, `profile.primary_tools`, `profile.adjacent_tool_examples`, `profile.anchor_metrics` fill the summary/CL rules. Employer names (Chintamani, Accenture) are fixed — they map to JSON schema keys wired to `documents/template_engine.py`'s `PLACEHOLDER_MAP`. The shared Feasibility Law + banned-words list is emitted by `_build_shared_law()` and injected into both CV and CL system prompts. To edit per-role verbs, tools, or dates: edit YAML, restart. No Python change needed.
+
+**Document generation** (`documents/pipeline.py`): On Apply — pipeline stages:
+0. **Translate** — if the JD is German, `utils/jd_translator.py` calls Haiku once (SHA-1 cached) so all downstream stages see English text. Fails open on error.
 1. **Generate** — `CVGenerator` (Sonnet) fills JSON for CV + CL concurrently
 2. **Humanize** — `ContentHumanizer` (Haiku) rewrites all text sections concurrently; preserves facts/tools/metrics; fails open
 3. **Evaluate** — `DocumentEvaluator` runs Claude ATS auditor + Python banned-word scan concurrently for CV + CL
@@ -49,7 +54,8 @@ Folder name pattern: `{N}. {Company}_{RoleType}_{PositionKW}`. Interview prep HT
 | File | Role |
 |------|------|
 | `main.py` | Entry point; starts all three services |
-| `config.py` | Central config; loads `.env`; first-run keyword seeds |
+| `config.py` | Central config; loads `user_config.yaml` (primary) then `.env` fallback; first-run keyword seeds |
+| `user_config.yaml` | **Single source of truth** for API keys, personal profile, CV/CL/interview profile text, and keyword seeds. Takes precedence over `.env`. Gitignored — copy from `.example` |
 | `orchestrator.py` | Full scan pipeline |
 | `ai/analyzer.py` | Claude relevance scoring with prompt caching |
 | `ai/cv_generator.py` | CV + CL generation; prompt override system (`data/prompts.json`) |
@@ -85,9 +91,13 @@ Per-application cost breakdown (logged via `_CALL_LABEL` in `documents/pipeline.
 
 | Stage | Model | Call type key |
 |-------|-------|---------------|
-| CV Generate | Sonnet | `cv` |
+| JD Translate (German only) | Haiku | `jd_translation` |
+| JD Analysis (strategic brief) | Sonnet | `jd_analysis` |
+| CV Generate | Sonnet* | `cv` |
 | CV Humanizer | Haiku | `cv_humanizer` |
 | CV ATS Check | Sonnet | `cv_ats` |
-| CL Generate | Sonnet | `cl` |
+| CL Generate | Sonnet* | `cl` |
 | CL Humanizer | Haiku | `cl_humanizer` |
 | CL ATS Check | Sonnet | `cl_ats` |
+
+\* CV/CL generation model is set per-pipeline via `DocumentPipeline(gen_model=...)`. A **dream application** (`💎 Dream Apply` button → `applyopus` callback) pins generation to `config.DREAM_MODEL` (Opus, ~5× Sonnet cost) while the ATS evaluator stays on Sonnet and the humanizer on Haiku, so only the two generation calls carry the premium. `filter_ats_banlist` in `ai/cv_generator.py` strips soft-skill and AI/ML-family terms from the mandatory-ATS injection — the CV is never forced to claim skills the candidate can't back (ATS ~78 on AI-heavy JDs is intentional, not a regression).

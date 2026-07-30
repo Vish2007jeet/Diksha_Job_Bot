@@ -142,6 +142,86 @@ profile:
     - "7.4 Company 4 — Role Description"
     - "7.5 Extracurricular / Projects"
 
+  # ── Per-employer metadata (named blocks — Chintamani/Accenture are fixed) ──
+  # Consumed by ai/cv_generator.py to build the Feasibility Law dynamically.
+  chintamani:
+    display_name: "Chintamani Thermal Technologies"
+    seniority: "Assistant Manager"
+    start: "2025-03"
+    end: "2026-02"
+    allowed_verbs: [coordinated, built, redesigned, delivered, tracked, consolidated, presented]
+    forbidden_verbs: []
+    scope_examples:
+      - "6 supplier categories"
+      - "14 supplier contracts"
+      - "200 monthly transactions"
+      - "cross-functional procurement PMO"
+  accenture:
+    display_name: "Accenture Solutions"
+    seniority: "New Associate"
+    start: "2022-11"
+    end: "2025-02"
+    allowed_verbs: [supported, contributed to, assisted with, participated in, analysed, built under guidance]
+    forbidden_verbs: [led, owned, managed, architected, drove strategy, mentored]
+    scope_examples:
+      - "50,000 insurance records"
+      - "5-analyst team"
+      - "SLA monitoring across 5 operational units"
+      - "3 client accounts"
+
+  projects:
+    project1:
+      name: "Supplier Spend Analytics and Cost Dashboard"
+      lead_when_jd_matches: [procurement, cost, pmo, governance, dashboards]
+    project2:
+      name: "Insurance Operations Reporting Automation"
+      lead_when_jd_matches: [reporting, automation, python, sql]
+
+  education:
+    current:
+      degree: "MSc Business Analytics"
+      institution: "KU Eichstätt-Ingolstadt"
+      start: "2026-03"
+      framing: "formalising what I've practiced for the past 3 years"
+    pgdm:
+      degree: "PGDM Supply Chain"
+      institution: "Welingkar"
+      distance_learning_tag: "(Online / Distance Learning)"
+      start: "2023-09"
+      end: "2025-08"
+
+  languages:
+    german:
+      level: "A2"
+      status: "actively progressing through daily exposure in Ingolstadt"
+      trigger_in_cl_when: ["Bavaria", "Munich", "Austria", "German JD"]
+
+  # Timeline gate — any employer whose `end` is < this date may NOT be credited
+  # with AI/LLM tool claims. Format: YYYY-MM.
+  ai_tool_timeline_gate: "2024-06"
+  ai_tool_terms:
+    - ChatGPT
+    - Claude
+    - Gemini
+    - GPT-4
+    - Microsoft Copilot
+    - MS365 Copilot
+    - internal LLM tools
+    - Prompt Engineering
+    - RAG
+    - vector DBs
+    - agentic workflows
+    - AI Governance
+
+  primary_tools: [Power BI, Python, Pandas, SQL, Power Query, VBA, SAP FI/CO, Power Automate, MS365, Tableau, Excel]
+  adjacent_tool_examples: [Azure, Looker, R, JIRA, Confluence, Snowflake, dbt, Power Apps, Qlik, MicroStrategy, Alteryx, SAS, SPSS, KNIME, Databricks, BigQuery, Redshift, Airflow, Looker Studio, Sisense, Domo, QlikView, Cognos, SSRS, SSIS]
+
+  # e.g. examples the summary can anchor on — NOT a strict rotation pool.
+  anchor_metrics:
+    - "cutting weekly reporting from 6 hours to 45 minutes"
+    - "surfacing a 12% procurement deviation finance had missed for two quarters"
+    - "processing 50,000+ insurance records to cut case resolution time by 18%"
+
 # ── Search Configuration ─────────────────────────────────────
 # These are seed values written to data/keywords.json on first run.
 # After first run, manage live via Telegram /tier1, /tier2, /tier3, /locations.

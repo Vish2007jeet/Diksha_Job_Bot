@@ -9,7 +9,10 @@ _PRICING = {
     "claude-haiku-4-5-20251001":  {"input": 0.80 / 1_000_000,  "output": 4.00 / 1_000_000},
     "claude-haiku-4-5":           {"input": 0.80 / 1_000_000,  "output": 4.00 / 1_000_000},
     "claude-sonnet-4-6":          {"input": 3.00 / 1_000_000,  "output": 15.00 / 1_000_000},
+    "claude-sonnet-4-5":          {"input": 3.00 / 1_000_000,  "output": 15.00 / 1_000_000},
     "claude-opus-4-7":            {"input": 15.00 / 1_000_000, "output": 75.00 / 1_000_000},
+    "claude-opus-4-8":            {"input": 15.00 / 1_000_000, "output": 75.00 / 1_000_000},
+    "claude-opus-4-1":            {"input": 15.00 / 1_000_000, "output": 75.00 / 1_000_000},
 }
 _DEFAULT = {"input": 3.00 / 1_000_000, "output": 15.00 / 1_000_000}
 

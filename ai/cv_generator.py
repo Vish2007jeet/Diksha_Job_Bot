@@ -1,27 +1,30 @@
 """
 CV & Cover Letter Generator — Claude-powered.
 
-CV Spec:
-  - 4 bullet points per role (chintamani + accenture), format: "Bold Label: detailed description sentence."
-  - Each label must be unique across all 8 bullets
-  - ATS keywords from JD distributed evenly — no keyword repeated across roles
-  - Quantified metrics on every bullet
-  - Strong action verbs; no banned words
-  - Summary: ~60 words, keyword-rich, role-aligned
-  - Core Competencies: ~60 words, comma-separated
-  - project1_desc / project2_desc: ~50 words each, tailored to JD
+CV format (current):
+  - 4 bullets per role (chintamani + accenture). ONE natural sentence per
+    bullet, action-verb led, no "Label:" prefix, no bold opener label.
+  - JD-driven ATS keywords wrapped inline with **double asterisks** for BOLD.
+  - Summary ≤65 words, bullets ≤30 words, project descriptions ≤20 words.
+  - Core Competencies packs every JD tool/skill; every tool bolded inline.
 
-CL Spec:
-  - Para 1: Why this company/role — passion + alignment (no "I am writing to...")
-  - Para 2: Experience at Accenture + Chintamani mapped to JD, ≥2 metrics
-  - Para 3: Projects (Supplier Spend Analytics + Insurance Ops Reporting)
-  - Para 4: What I'll contribute — skills → company value
-  - Para 5: Confident close with availability/relocation note
+CL format (current):
+  - 5 paragraphs. Para 1 opens with a story-first anecdote (never "I am
+    writing…"). Para 3 goes deep on one project. Company name bolded ≥2x.
+
+Per-employer facts (dates, seniority, verbs, scope, tools, MSc, German level,
+AI-tool timeline gate, anchor metrics) all live in user_config.yaml under
+`profile:` and are interpolated at import time — this file no longer
+hardcodes them.
+
+Prompts can be overridden per-key via the /setprompt bot command
+(persisted in data/prompts.json).
 """
 from __future__ import annotations
 
 import asyncio
 import json
+import re
 from pathlib import Path
 from typing import Dict
 
@@ -85,9 +88,235 @@ def reset_prompt(key: str | None = None) -> None:
         elif _PROMPTS_FILE.exists():
             _PROMPTS_FILE.unlink()
 
+# ── ATS banlist — banned Core-Competencies terms that must be filtered from
+# the mandatory-ATS keyword list before injection into the CV prompt.
+_ATS_BANLIST: frozenset[str] = frozenset({
+    "hybrid work", "remote work", "flexible hours", "work-life balance",
+    "office presence", "on-site", "english language proficiency",
+    "german language proficiency", "communication materials", "soft skills",
+    "hard skills", "team player", "self-motivated", "detail-oriented",
+    "fast learner", "can-do attitude", "growth mindset",
+})
+
+# AI/ML-family ATS terms. These get filtered from the MANDATORY keyword
+# injection because the candidate cannot honestly back them (no real AI/ML
+# experience). If we force them in verbatim, the model dumps them into Core
+# Competencies where they sit unbacked and get an AI-team recruiter to reject
+# on sight. They may still appear IF the model finds a genuine exposure phrase
+# — they are just never *mandatory*. This keeps the CV honest for AI-heavy JDs.
+_ATS_AI_FAMILY_RE = re.compile(
+    r"\b("
+    r"AI\s+Governance|AI\s+Literacy|AI\s+Ethics|AI\s+Compliance|AI\s+Strategy|"
+    r"Machine\s+Learning(?:\s+Awareness)?|ML\s*Ops|MLOps|Deep\s+Learning|"
+    r"Generative\s+AI|GenAI|Prompt\s+Engineering|LLMs?|RAG|"
+    r"Neural\s+Networks?|Natural\s+Language\s+Processing|NLP|"
+    r"Artificial\s+Intelligence|Data\s+Science"
+    r")\b",
+    re.IGNORECASE,
+)
+
+
+def filter_ats_banlist(keywords: list[str]) -> list[str]:
+    """
+    Return `keywords` with two classes dropped (case-insensitive):
+      1. Soft-skill banlist terms (Team Player, Detail-Oriented, …).
+      2. AI/ML-family terms the candidate cannot honestly back — so they are
+         never forced verbatim into the CV. See `_ATS_AI_FAMILY_RE`.
+    """
+    out = []
+    for k in keywords:
+        if not k:
+            continue
+        if k.strip().lower() in _ATS_BANLIST:
+            continue
+        if _ATS_AI_FAMILY_RE.search(k):
+            continue
+        out.append(k)
+    return out
+
+
+# ── Config helpers — turn profile dicts into prompt-ready strings ────
+
+_MONTHS = ("January", "February", "March", "April", "May", "June",
+           "July", "August", "September", "October", "November", "December")
+
+
+def _fmt_date(iso_ym: str) -> str:
+    """`'2025-03'` → `'March 2025'`. Passes through if unparseable."""
+    try:
+        y, m = iso_ym.split("-")
+        return f"{_MONTHS[int(m) - 1]} {y}"
+    except Exception:
+        return iso_ym or "?"
+
+
+def _ym_key(iso_ym: str) -> int:
+    """Sort key: `'2025-03'` → 202503; missing/invalid → 0."""
+    try:
+        y, m = iso_ym.split("-")
+        return int(y) * 100 + int(m)
+    except Exception:
+        return 0
+
+
+def _employers() -> list[dict]:
+    """Return the two employer blocks in chronological order (older first)."""
+    return sorted(
+        [config.PROFILE_CHINTAMANI, config.PROFILE_ACCENTURE],
+        key=lambda e: _ym_key(e.get("start", "")),
+    )
+
+
+def _pre_gate_employers() -> list[dict]:
+    """
+    Employers whose `start` is strictly before the AI-tool timeline gate —
+    they ran in the pre-corporate-LLM era. Any LLM/AI-tool claim on them is
+    a timeline mismatch a recruiter will catch instantly.
+    """
+    gate = _ym_key(config.AI_TIMELINE_GATE)
+    return [e for e in _employers() if _ym_key(e.get("start", "")) < gate]
+
+
+def _post_gate_employers() -> list[dict]:
+    """Employers whose `start` is on/after the AI-tool timeline gate."""
+    gate = _ym_key(config.AI_TIMELINE_GATE)
+    return [e for e in _employers() if _ym_key(e.get("start", "")) >= gate]
+
+
+# ── Shared prompt fragments (used in BOTH CV + CL system prompts) ────
+
+def _build_feasibility_law() -> str:
+    """
+    Timeline / Seniority / Scope / Tool law built from `config.PROFILE_*`.
+    Reused by CV and CL system prompts to avoid ~120 lines of duplication.
+    """
+    lines: list[str] = [
+        "━━━ FEASIBILITY LAW — every claim must be defensible in a 30-minute interview ━━━",
+        "Tailoring is encouraged. Fabrication that cannot be defended is forbidden.",
+        "",
+        "TIMELINE — role date ranges:",
+    ]
+    for e in _employers():
+        lines.append(
+            f"  • {e.get('display_name', '?')}: "
+            f"{_fmt_date(e.get('start', ''))} → {_fmt_date(e.get('end', ''))} "
+            f"({e.get('seniority', '?')})"
+        )
+
+    pre = _pre_gate_employers()
+    post = _post_gate_employers()
+    if config.AI_TOOL_TERMS and pre:
+        terms = ", ".join(config.AI_TOOL_TERMS)
+        pre_names = ", ".join(e.get("display_name", "?") for e in pre)
+        post_names = ", ".join(e.get("display_name", "?") for e in post) or "none"
+        lines += [
+            "",
+            "AI-TOOL TIMELINE GATE — ZERO TOLERANCE:",
+            f"  Corporate LLM adoption did not happen at scale before {_fmt_date(config.AI_TIMELINE_GATE)}.",
+            f"  Terms that fall under the gate: {terms}.",
+            f"  These terms may ONLY be attributed to: {post_names}.",
+            f"  They are FORBIDDEN on: {pre_names} — not even framed as 'exposure',",
+            "  'contributed to', 'research on', or 'documentation of'. A recruiter will",
+            "  catch the timeline mismatch instantly.",
+        ]
+
+    lines += ["", "SENIORITY — verb tier per role:"]
+    for e in _employers():
+        name = e.get("display_name", "?")
+        seniority = e.get("seniority", "?")
+        allowed = ", ".join(e.get("allowed_verbs", []))
+        forbidden = ", ".join(e.get("forbidden_verbs", []))
+        lines.append(f"  • {name} ({seniority}) — use: {allowed}.")
+        if forbidden:
+            lines.append(f"    NEVER on {name}: {forbidden}.")
+
+    lines += ["", "SCOPE — realistic examples per role (do not exceed these magnitudes):"]
+    for e in _employers():
+        scope = "; ".join(e.get("scope_examples", []))
+        lines.append(f"  • {e.get('display_name', '?')}: {scope}")
+
+    if config.PRIMARY_TOOLS:
+        lines += [
+            "",
+            "TOOL TIER:",
+            f"  PRIMARY (direct ownership language OK): {', '.join(config.PRIMARY_TOOLS)}.",
+        ]
+    if config.ADJACENT_TOOL_EXAMPLES:
+        lines.append(
+            f"  ADJACENT (exposure/contribution language only, never architectural ownership): "
+            f"{', '.join(config.ADJACENT_TOOL_EXAMPLES)}."
+        )
+        lines += [
+            "  For adjacent tools use framings like: 'supported reporting workflows that fed",
+            "  into X', 'gained exposure to X during Y project', 'contributed to X-tracked",
+            "  sprint reviews'. NEVER: 'architected', 'led', 'owned end-to-end'.",
+        ]
+
+    return "\n".join(lines)
+
+
+# Canonical list of terms the generator prompt forbids. SINGLE SOURCE OF TRUTH:
+# the Python banned-word scanner in `ai/evaluator.py` imports this tuple and
+# unions it into its own scan list, so a term added here is automatically
+# enforced by the scanner too — no silent drift (e.g. "emerging technologies"
+# used to be banned in the prompt but missing from the scanner).
+_PROMPT_BANNED_TERMS: tuple[str, ...] = (
+    "cutting-edge", "delve", "foster", "garner", "showcase", "transformative",
+    "synergy", "pivotal", "serves as", "boasts", "state-of-the-art",
+    "result-driven", "innovative solutions", "best-in-class", "furthermore",
+    "moreover", "strong work ethic", "team player", "attention to detail",
+    "proven track record", "detail-oriented", "highly motivated",
+    "self-motivated", "played a key role in", "was involved in",
+    "helped to achieve", "it is worth noting", "needless to say",
+    "forward-thinking", "emerging technologies", "next-generation",
+    "game-changing", "world-class", "industry-leading", "thought leadership",
+)
+
+
+def _render_banned_words_line() -> str:
+    """Render `_PROMPT_BANNED_TERMS` into the prose line injected into the prompt."""
+    terms = ", ".join(
+        f'"{t}"' if (" " in t or "-" in t) else t for t in _PROMPT_BANNED_TERMS
+    )
+    return (
+        f"BANNED WORDS (high-signal AI tells): {terms}. "
+        "(Note: 'leveraged', 'utilised', 'enhanced', 'robust', 'impactful', "
+        "'proactive' are PERMITTED — use sparingly and naturally.)"
+    )
+
+
+_BANNED_WORDS_LINE = _render_banned_words_line()
+
+
+def _build_shared_law() -> str:
+    """Feasibility Law + Banned Words — included verbatim in both CV and CL system prompts."""
+    return _build_feasibility_law() + "\n\n" + _BANNED_WORDS_LINE
+
+
 # ── System Prompts (built from user_config.yaml at import time) ───
 
 def _build_cv_system() -> str:
+    # ── Interpolated config values (built once at import) ────
+    edu_current = config.PROFILE_EDUCATION.get("current", {}) or {}
+    edu_pgdm    = config.PROFILE_EDUCATION.get("pgdm", {}) or {}
+    de_lang     = config.PROFILE_LANGUAGES.get("german", {}) or {}
+    msc_line    = (
+        f"{edu_current.get('degree', 'MSc')} at "
+        f"{edu_current.get('institution', '?')} — {edu_current.get('framing', '')}"
+    ).strip(" —")
+    msc_start   = _fmt_date(edu_current.get("start", ""))
+    pgdm_tag    = edu_pgdm.get("distance_learning_tag", "(Online / Distance Learning)")
+    pgdm_name   = edu_pgdm.get("degree", "PGDM")
+    pgdm_inst   = edu_pgdm.get("institution", "")
+    de_level    = de_lang.get("level", "A2")
+    anchors     = config.ANCHOR_METRICS[:3] or [
+        "cutting weekly reporting from 6 hours to 45 minutes",
+        "surfacing a 12% procurement deviation finance had missed for two quarters",
+        "processing 50,000+ insurance records to cut case resolution time by 18%",
+    ]
+    anchor_block = "\n".join(f"        e.g. '{a}'" for a in anchors)
+    latest_role_start = _fmt_date(_employers()[-1].get("start", "")) if _employers() else "?"
+
     return (
         f"You are an expert professional recruiter and ATS optimisation specialist with 15+ years of experience"
         f" creating resumes for business analytics, finance, and operations roles."
@@ -114,196 +343,118 @@ def _build_cv_system() -> str:
         '  "Variance Reporting: Identified a 12% budget deviation..."  ← Label: prefix is banned\n'
         '  "**KPI Tracking** — designed..."  ← bold prefix label is banned\n'
         '  "Results fast. Built dashboards in Power BI."  ← not one sentence\n\n'
-        "━━━ JD-KEYWORD BOLD HIGHLIGHTING — mandatory, makes the CV stand out to skimming recruiters ━━━\n"
+        "━━━ JD-KEYWORD BOLD HIGHLIGHTING — mandatory ━━━\n"
         "Wrap JD-driven ATS keywords in **double asterisks** so the template engine renders them BOLD inline.\n"
-        "These bold pulses act as visual anchors that catch the recruiter's eye in a 6-second scan.\n\n"
-        "  WHAT TO BOLD: tool names (Power BI, Python, SQL, SAP FI/CO, Power Query, VBA, Power Automate, Tableau, Excel),\n"
-        "    methodologies (Variance Analysis, Financial Reporting, KPI Dashboards, Forecasting, Reconciliation),\n"
-        "    domain terms when the JD names them (Procurement Analytics, Insurance Operations, Controlling, Stakeholder Reporting).\n"
-        "  WHAT NOT TO BOLD: verbs, articles, generic words ('data', 'team', 'work', 'system'), numbers, role titles, dates, company names inside bullets.\n"
+        "  WHAT TO BOLD: tool names, methodologies (Variance Analysis, Financial Reporting, KPI Dashboards),\n"
+        "    domain terms when the JD names them.\n"
+        "  WHAT NOT TO BOLD: verbs, articles, generic words, numbers, role titles, dates, company names inside bullets.\n"
         "  HOW MUCH:\n"
-        "    • Summary: bold 2–3 JD keywords (the most central to the role).\n"
-        "    • Core Competencies: bold every TOOL listed (Power BI, Python, SQL, etc.); leave methodology and domain terms unbold.\n"
-        "    • Each bullet: 1–2 bold spans MAXIMUM. Many bullets will have just one. Some may have zero — that is fine.\n"
-        "    • Project descriptions: 1 bold span each (the dominant tool).\n"
-        "    • TOTAL across the whole CV: 10–15 bold spans. NEVER exceed 18 — over-bolding looks spammy and defeats the purpose.\n"
-        "  REPETITION: bold a keyword on its FIRST occurrence per section only. If 'Power BI' appears in 3 bullets, bold it in the first, leave it plain in the others.\n"
+        "    • Summary: bold 2–3 JD keywords.\n"
+        "    • Core Competencies: bold every TOOL listed; leave methodology and domain terms unbold.\n"
+        "    • Each bullet: 1–2 bold spans MAXIMUM. Zero is fine.\n"
+        "    • Project descriptions: 1 bold span each.\n"
+        "    • TOTAL across the whole CV: 10–15 bold spans; never above 18.\n"
+        "  REPETITION: bold a keyword on its FIRST occurrence per section only.\n"
         "  PUNCTUATION: bold the keyword only, not surrounding punctuation. ✓ `**Power BI**,`   ✗ `**Power BI,**`\n"
-        "  HYGIENE: never bold a partial word. Never nest. Never leave an unmatched `**`. Always paired.\n\n"
+        "  HYGIENE: never bold a partial word. Never nest. Always paired `**...**`.\n\n"
         "━━━ SENTENCE VARIETY (apply across all 8 bullets) ━━━\n"
-        "Write the way a strong human writer would — let the content decide the structure.\n"
-        "Do NOT rotate named patterns. Instead follow these natural variety rules:\n\n"
-        "  LENGTH: Mix at least one short punchy bullet (≤15 words) with at least one detailed one (25+ words) per role.\n"
-        "  RHYTHM: No two consecutive bullets may start with the same verb. Vary openers across the 8 bullets — do not use 'Identified' twice, 'Analysed' twice, etc.\n"
-        "  METRICS: Use a metric wherever it makes the bullet stronger and the value stays realistic for this profile.\n"
-        "    Do not force a number into every bullet — some bullets read better as concrete qualitative outcomes.\n"
-        "    Qualitative outcomes must be specific and concrete — never vague ('improved efficiency', 'enhanced performance').\n"
-        "    Numbers should feel earned: percentages in the 5–30% range, time savings in minutes/hours, record counts in thousands.\n"
-        "  STORYTELLING: Where a metric exists, show WHY it matters — not just the number. E.g. 'catching a 12% discrepancy the finance team had missed for two quarters' reads like a real event.\n"
-        "  TOOLS: Name a specific tool only where it genuinely fits — do not force a tool mention into every bullet.\n\n"
-        "Good variety looks unpredictable — after reading one bullet, the reader cannot guess the structure of the next.\n"
-        "NOTE: the Label ALWAYS comes first, regardless of how the description is structured.\n\n"
+        "  LENGTH: mix at least one short punchy bullet (≤15 words) with at least one detailed one (25+ words) per role.\n"
+        "  RHYTHM: no two consecutive bullets may start with the same verb. Vary openers across all 8 bullets.\n"
+        "  METRICS: use a metric wherever it strengthens the bullet and stays realistic. Concrete qualitative outcomes are equally strong; never vague ('improved efficiency').\n"
+        "  STORYTELLING: where a metric exists, show WHY it matters — 'catching a 12% discrepancy the finance team had missed for two quarters' reads like a real event.\n"
+        "  TOOLS: name a specific tool only where it genuinely fits — do not force a tool mention into every bullet.\n\n"
         "━━━ OTHER RULES ━━━\n"
         "- Exactly 4 bullets per role — no more, no less.\n"
-        "- All 8 labels across both roles must be completely unique — zero repeats.\n"
-        "- Distribute ATS keywords across ALL CV sections: summary, Core Competencies, both roles' bullets, and project descriptions.\n"
-        "  No section should be keyword-free if the JD supplies relevant terms.\n"
-        "  Core Competencies is the PRIMARY keyword coverage layer — pack it with every JD tool, software, and domain skill\n"
-        "  that does not fit naturally into a bullet. Keywords may appear in both competencies AND a bullet if they are central to the role.\n"
-        "- No two bullets across the entire resume share the same opening word in the description.\n"
-        "- Cover analysis, insight, operations, reporting, and stakeholder impact — distributed naturally across bullets.\n"
-        "- Combine data analysis + business insight + operational language throughout.\n\n"
-        "CONTENT RULES:\n"
+        "- Distribute ATS keywords across ALL CV sections. Core Competencies is the PRIMARY keyword coverage layer.\n"
+        "- No two bullets across the entire resume share the same opening word.\n"
+        "- Cover analysis, insight, operations, reporting, and stakeholder impact — distributed naturally.\n"
         "- Tailored 100% to the job description — every bullet is written FOR this specific role.\n"
-        "- Generate bullets from the JD requirements; do not constrain content to any prior CV examples.\n"
-        "- Metrics should feel realistic and earned — percentages in the 5–30% range, time savings in minutes/hours.\n"
-        "- Technical depth and business application both present across the 4 bullets — not necessarily in every single one.\n"
-        "- Sound natural and confident — not robotic or AI-generated. Act as a 15+ year experienced ATS CV writer.\n"
-        "- Use metrics where they strengthen the bullet; use concrete qualitative outcomes where a metric would feel forced.\n\n"
-        "━━━ FEASIBILITY LAW — must be defensible in a 30-minute interview ━━━\n"
-        "Tailoring is encouraged. Fabrication that cannot be defended is forbidden. Every bullet must be a story\n"
-        "the candidate could plausibly tell out loud. Apply these tests before outputting any bullet:\n\n"
-        "  TIMELINE TEST — the technology or framework must have existed in production use when the role ran:\n"
-        "    Chintamani role: March 2025 → Feb 2026. Accenture role: Nov 2022 → Feb 2025.\n"
-        "    • ChatGPT, GPT-4, Claude, Gemini, Microsoft Copilot, MS365 Copilot, internal LLM tools,\n"
-        "      AI assistants, Prompt Engineering, vector DBs, RAG, agentic workflows, AI Governance →\n"
-        "      ZERO TOLERANCE: these claims may ONLY appear attributed to Chintamani (March 2025+).\n"
-        "      Attaching ANY of these to Accenture — even framed as 'exposure', 'contributed to',\n"
-        "      'research on', 'documentation of' — is FORBIDDEN. Recruiters know corporate LLM rollouts\n"
-        "      did not happen at scale before mid-2024 and will catch the timeline mismatch instantly.\n"
-        "    • Power BI / Python / SAP / Power Automate / VBA / SQL / MS365 → fine for both roles.\n"
-        "    If a JD asks for an AI/LLM-related skill, anchor the claim 100% to Chintamani.\n"
-        "    Accenture bullets focus on: insurance ops reporting, Python (Pandas), SQL, Power BI,\n"
-        "    Excel automation, SLA monitoring, documentation, data quality — pre-LLM era stack.\n\n"
-        "  SENIORITY TEST — match the actual role level:\n"
-        "    Accenture (New Associate, first job) → use 'supported', 'contributed to', 'assisted with',\n"
-        "      'participated in', 'analysed', 'built under guidance'. NEVER: 'led', 'owned', 'managed a team',\n"
-        "      'architected', 'drove strategy', 'mentored 20 people'.\n"
-        "    Chintamani (Assistant Manager) → 'coordinated', 'built', 'redesigned', 'delivered',\n"
-        "      'tracked', 'consolidated', 'presented to senior management'. Light leadership phrasing is OK.\n\n"
-        "  SCOPE TEST — numbers must match a 3-year-experience business analyst in ops/insurance/procurement:\n"
-        "    OK: 50,000 insurance records, 6 supplier categories, 200 transactions/month, 4 departments,\n"
-        "        5-analyst team, 3 client accounts, 6 hours → 45 min, 12–18% improvements.\n"
-        "    NOT OK: millions of records, 50+ direct reports, cross-continent rollouts, multi-million-€ P&L,\n"
-        "        company-wide transformations, founding a function from scratch.\n\n"
-        "  TOOL TEST — PRIMARY tools (Power BI, Python/Pandas, SQL, Excel VBA/Power Query, SAP FI/CO,\n"
-        "    Power Automate, MS365, Tableau) may be claimed with direct ownership language.\n"
-        "    ADJACENT tools named in the JD (e.g. Azure, Looker, R, Snowflake, JIRA, Confluence,\n"
-        "    MicroStrategy, Qlik, Google Data Studio, dbt, Power Apps) — CREATE a brief, plausible\n"
-        "    exposure experience using framing such as:\n"
-        "      'supported reporting workflows that fed into Azure pipelines'\n"
-        "      'gained exposure to Looker dashboards while consolidating BI outputs'\n"
-        "      'contributed to JIRA-tracked sprint reviews for the analytics team'\n"
-        "    Keep the claim believable for role level and timeline. A 1–2 word mention in Core\n"
-        "    Competencies backed by a phrase in one bullet is sufficient to pass ATS without overstating.\n"
-        "    NEVER claim architectural ownership of adjacent tools ('built a Snowflake warehouse',\n"
-        "    'architected Azure data lakehouse') — only contribution/exposure language.\n\n"
-        "  FRAMING for stretch claims (adjacent skills the candidate has plausibly seen but not formally owned):\n"
-        "    Use exposure-language: 'supported X reporting that fed Y', 'contributed to Z workflows',\n"
-        "    'assisted senior team with W', 'gained exposure to Z during X project'.\n"
-        "    The candidate can confidently elaborate on any such claim because the framing already\n"
-        "    signals contribution rather than ownership.\n\n"
-        "  PROFILE SUMMARY rule — must be a real description of the person, not a tools list:\n"
-        "    Sentence 1: LEAD with the 3 years of work experience (insurance ops at Accenture + procurement\n"
-        "      analytics at Chintamani). The MSc is supporting context, NOT the opener — she started March 2026.\n"
-        "    Sentence 2: what she does best, tied to the JD (1 specific theme — e.g. 'reporting automation',\n"
-        "      'procurement governance', 'stakeholder-ready analysis'). MUST embed ONE specific anchor metric.\n"
-        "      ROTATE through this pool — do NOT default to the same anchor every application:\n"
-        "        (a) 'cutting weekly reporting from 6 hours to 45 minutes' (automation focus)\n"
-        "        (b) 'surfacing a 12% procurement deviation finance had missed for two quarters' (analytics/discovery focus)\n"
-        "        (c) 'processing 50,000+ insurance records to cut case resolution time by 18%' (data/Python focus)\n"
-        "        (d) 'renegotiating 14 supplier contracts for a 9% cost reduction over two quarters' (cost/PMO focus)\n"
-        "        (e) 'reducing exception rates by 11% across 5 operational units serving 120+ agents' (operations/scale focus)\n"
-        "        (f) 'improving forecast accuracy by 17% through structured SAP FI/CO inputs' (finance/controlling focus)\n"
-        "      Pick the anchor whose theme maps closest to the JD's stated focus. If two JDs in a batch share a theme,\n"
-        "      pick a SECONDARY anchor for the second one — never repeat the same anchor verbatim.\n"
-        "    Sentence 3: where she is now (MSc Business Analytics at KU Eichstätt-Ingolstadt formalising the practice)\n"
-        "      and what she wants to contribute to this specific role.\n"
-        "    Banned: opening with 'Skilled in [tools list]', 'Hands-on experience in [tools list]',\n"
-        "      'MSc student with...' (MSc-first leads are weak — she has 3 yrs work to anchor on),\n"
-        "      generic 'known for translating complex data' without a specific number to back it.\n\n"
-        "  CORE COMPETENCIES banlist — these are NOT skills; never include them even if the JD mentions them:\n"
-        "    Hybrid Work, Remote Work, Flexible Hours, Work-Life Balance, Office Presence, On-site,\n"
-        "    English Language Proficiency (English fluency belongs in the Languages section, not Competencies),\n"
-        "    German Language Proficiency, Communication Materials (vague), Soft Skills, Hard Skills,\n"
-        "    Team Player, Self-Motivated, Detail-Oriented, Fast Learner, Can-Do Attitude, Growth Mindset.\n"
-        "    If the JD mentions these, simply skip them in Competencies — they reduce credibility.\n\n"
-        "  STRETCH-CLAIM framing for adjacent skills (AI Governance, Risk Mgmt, Compliance, ML Ops,\n"
-        "    adjacent BI tools, cloud platforms, project tools, etc.):\n"
-        "    The candidate has procurement governance + insurance ops reporting experience. For any JD\n"
-        "    requirement not directly covered by core experience, CREATE a plausible exposure story:\n"
-        "      • Risk Mgmt / Compliance → 'contributed to SLA compliance documentation'\n"
-        "      • Azure / Cloud → 'supported reporting pipelines that fed into Azure-hosted dashboards'\n"
-        "      • JIRA / Confluence → 'tracked sprint deliverables in JIRA during cross-functional projects'\n"
-        "      • Agile / Scrum → 'participated in bi-weekly sprint reviews as reporting analyst'\n"
-        "      • Looker / Qlik / MicroStrategy → 'gained exposure to [tool] outputs during BI consolidation'\n"
-        "    ALWAYS use exposure-language: 'exposure to', 'supported reporting that fed', 'contributed to',\n"
-        "    'participated in', 'gained experience with'. NEVER direct ownership: not 'designed', not 'led',\n"
-        "    not 'architected', not 'owned end-to-end'.\n"
-        "    A stretch claim in Core Competencies MUST be backed by at least one phrase in a bullet or CL\n"
-        "    using the framing above — never list a tool in Competencies with zero supporting context.\n\n"
+        "- Sound natural and confident — not robotic or AI-generated.\n\n"
+        f"{_build_shared_law()}\n\n"
+        "━━━ PROFILE SUMMARY rule — must be a real description of the person, not a tools list ━━━\n"
+        "  Sentence 1: LEAD with the 3 years of work experience (Chintamani + Accenture). The MSc is supporting\n"
+        f"    context, NOT the opener — it started {msc_start}.\n"
+        "  Sentence 2: what she does best, tied to the JD (1 specific theme — e.g. 'reporting automation',\n"
+        "    'procurement governance', 'stakeholder-ready analysis'). MUST embed ONE specific anchor metric.\n"
+        "    Pick the anchor whose theme maps closest to the JD's stated focus. Vary across applications —\n"
+        "    do not repeat the same anchor two JDs in a row. Examples:\n"
+        f"{anchor_block}\n"
+        f"  Sentence 3: where she is now ({msc_line}) and what she wants to contribute to this specific role.\n"
+        "  Banned openers: 'Skilled in [tools list]', 'Hands-on experience in [tools list]', 'MSc student with...',\n"
+        "  generic 'known for translating complex data' without a specific number to back it.\n\n"
+        "CORE COMPETENCIES banlist — never include these even if the JD mentions them:\n"
+        "  Hybrid Work, Remote Work, Flexible Hours, Work-Life Balance, Office Presence, On-site,\n"
+        "  English/German Language Proficiency (language belongs in the Languages section),\n"
+        "  Communication Materials, Soft Skills, Hard Skills, Team Player, Self-Motivated, Detail-Oriented,\n"
+        "  Fast Learner, Can-Do Attitude, Growth Mindset. Silently skip them.\n\n"
+        "━━━ CORE COMPETENCIES BACKING RULE — enforced, hard failure if broken ━━━\n"
+        f"  PRIMARY TOOLS (may appear in Core Competencies with no bullet backing needed):\n"
+        f"    {', '.join(config.PRIMARY_TOOLS)}.\n"
+        "  EVERYTHING ELSE listed in Core Competencies MUST be backed by at least one phrase in\n"
+        "  one of the 8 bullets, both project descriptions, or the summary.\n"
+        "  This applies to methodologies (Variance Analysis, KPI Dashboards, Financial Reporting,\n"
+        "  Data Governance, Data Quality Assurance, SLA Management), domain terms (Procurement\n"
+        "  Analytics, Insurance Operations, PMO Support, Training Material Development, Stakeholder\n"
+        "  Communication, Knowledge Management, Report Summarisation), and any adjacent tool.\n"
+        "  Example: if you list 'AI Governance' in Competencies, at least ONE bullet must say\n"
+        "  something like 'contributed to AI usage guidelines for the finance team's summarisation\n"
+        "  workflow' or similar exposure-language phrase. NEVER list a term with zero context —\n"
+        "  a recruiter grep-searching for that term will find it in Competencies and then look for\n"
+        "  the story, and finding none instantly discredits the whole CV.\n"
+        "  BANNED FILLER competencies (they sound like fluff — do not use even if in the JD):\n"
+        "    'Machine Learning Awareness', 'AI Awareness', 'Data Awareness', 'Business Acumen',\n"
+        "    'Analytical Mindset', 'Strategic Thinking', 'Innovation', 'Continuous Learning',\n"
+        "    'Cross-Functional Collaboration', 'Data-Driven Decision Making' (these are stances, not skills).\n\n"
+        "━━━ AI/ML COMPETENCIES — DEFAULT TO OMIT ━━━\n"
+        "  The candidate's real AI/ML exposure is LIMITED. For an AI-focused role, the instinct is to\n"
+        "  stuff 'AI Governance', 'AI Literacy', 'Machine Learning', 'Prompt Engineering' into\n"
+        "  Competencies. DO NOT. These cannot be honestly backed by her procurement + insurance-ops\n"
+        "  bullets, and listing them unbacked is the single fastest way to get rejected by an AI-team\n"
+        "  recruiter who WILL probe them.\n"
+        "  Instead, serve an AI-focused JD through the transferable skills she genuinely OWNS and can\n"
+        "  back in a bullet: data fluency (Python, SQL), reporting automation, stakeholder-ready\n"
+        "  communication, documentation, PMO support, knowledge management, quality assurance.\n"
+        "  Only include an AI/ML term in Competencies if a bullet contains a genuine, defensible\n"
+        "  exposure phrase for it. When in doubt, OMIT — a tight backed CV beats a padded one.\n\n"
         "SECTION ORDER: Summary → Core Competencies → Professional Experience → Projects → Education → Technical Skills\n\n"
-        "━━━ EDUCATION RENDERING — mandatory, prevents date-overlap suspicion ━━━\n"
-        "  The PGDM at Welingkar (Sept 2023 – Aug 2025) overlaps with full-time work at Accenture\n"
-        "  and Chintamani. This is LEGITIMATE — the PGDM is an online distance-learning programme\n"
-        "  designed for working professionals. But a recruiter scanning dates cannot tell that\n"
-        "  unless the CV says so explicitly. Therefore:\n"
-        "    • The Welingkar PGDM entry MUST always include the tag '(Online / Distance Learning)'\n"
-        "      immediately after the programme name — every CV, no exceptions.\n"
-        "    • Never drop, paraphrase, or shorten this tag.\n"
-        "    • If a CL touches education timing, frame the PGDM as 'pursued online alongside full-time work'.\n\n"
-        'BANNED WORDS (high-signal AI tells and filler — banned to keep prose natural): cutting-edge, delve, foster, garner, showcase, transformative, synergy, pivotal, "serves as", "boasts", "state-of-the-art", "result-driven", "innovative solutions", "best-in-class", furthermore, moreover, "strong work ethic", "team player", "attention to detail", "proven track record", "detail-oriented", "highly motivated", "self-motivated", "played a key role in", "was involved in", "helped to achieve", "it is worth noting", "needless to say", "forward-thinking", "forward thinking", "emerging technologies", "next-generation", "next generation", "game-changing", "world-class", "industry-leading", "thought leadership"\n'
-        "(Note: 'leveraged', 'utilised', 'enhanced', 'robust', 'impactful', 'proactive' are PERMITTED — overzealous banning forced awkward synonyms. Use sparingly and naturally.)\n\n"
+        "━━━ EDUCATION RENDERING — prevents date-overlap suspicion ━━━\n"
+        f"  The {pgdm_name} at {pgdm_inst} overlaps with full-time work at both roles. This is LEGITIMATE —\n"
+        "  it is an online distance-learning programme for working professionals. Recruiters scanning dates\n"
+        "  cannot tell unless the CV says so. Therefore:\n"
+        f"    • The {pgdm_inst} {pgdm_name} entry MUST always include the tag '{pgdm_tag}'\n"
+        "      immediately after the programme name — every CV, no exceptions. Never drop or shorten it.\n"
+        "    • If a CL touches education timing, frame it as 'pursued online alongside full-time work'.\n\n"
         "BANNED PATTERNS:\n"
-        "- Transition openers: never start a sentence with 'Furthermore', 'Moreover', 'Additionally', 'As a result'\n"
-        "- Bullet uniformity: alternate short punchy (≤12 words) with long technical (25+ words) — no two consecutive bullets same length class\n"
-        "- Vague openers: 'Played a key role in', 'Was involved in', 'Helped to achieve', 'Was responsible for'\n"
-        "- Em dash inside bullet descriptions — use comma or period instead\n"
-        '- "In order to" → "To"\n\n'
-        "LANGUAGE RULE (absolute — zero exceptions):\n"
-        "Write in English only. Every word in every field — summary, competencies, bullets, project descriptions — must be English.\n"
-        "CORE COMPETENCIES are the most common failure point: never paste a German JD term into the list.\n"
-        "  ✗ WRONG: 'Statistiksoftware (Excel, Python)' · 'Qualitätssicherung der Daten' · 'datenbasierte Entscheidungen'\n"
-        "           'Wirtschaftspsychologie & Behavioural Insights' · 'Künstliche Intelligenz (Exposure)' · 'Teilprojekte'\n"
-        "  ✓ RIGHT: 'Statistical Software (Excel, Python)' · 'Data Quality Assurance' · 'Data-Driven Decision Making'\n"
-        "           'Business Psychology & Behavioural Insights' · 'Artificial Intelligence (Exposure)' · 'Sub-project Coordination'\n"
-        "Never append a German parenthetical after an English term — 'Data Quality Assurance (Qualitätssicherung der Daten)' is wrong;\n"
-        "write 'Data Quality Assurance' only. If the JD is in German, translate every term before writing:\n"
-        "  Werkstudent → Working Student\n"
-        "  Praktikum → Internship\n"
-        "  Masterarbeit → Master Thesis\n"
-        "  Controlling → Controlling (keep as-is, it is international business terminology)\n"
-        "  Berichtswesen → Reporting\n"
-        "  Einkauf → Procurement\n"
-        "  Buchhaltung → Accounting\n"
-        "  Unternehmensberatung → Management Consulting\n"
-        "  Datenauswertung → Data Analysis\n"
-        "  Finanzplanung → Financial Planning\n"
-        "  Abweichungsanalyse → Variance Analysis\n"
-        "  Wirtschaftsinformatik → Business Informatics\n"
-        "  Betriebswirtschaft → Business Administration\n"
-        "  Informatik → Computer Science\n"
-        "  Softwaretechnik → Software Engineering\n"
-        "  Fahrzeugtechnik → Automotive Engineering\n"
-        "  Steuergeräte → Control Units\n"
-        "  Steuergerät → Control Unit\n"
-        "  Regelungstechnik → Control Engineering\n"
-        "  Elektrotechnik → Electrical Engineering\n"
-        "  Maschinenbau → Mechanical Engineering\n"
-        "  Mathematik → Mathematics\n"
-        "  Naturwissenschaften → Natural Sciences\n"
-        "  Fahrzeugentwicklung → Vehicle Development\n"
-        "  Entwicklung → Development\n"
-        "  Kenntnisse → Knowledge\n"
-        "  Erfahrung → Experience\n"
-        "  Studium → Studies\n"
-        "  Fachrichtung → Field of Study\n"
-        "If unsure of the English translation, paraphrase in plain English. Never output German.\n\n"
+        "- Transition openers: never start a sentence with 'Furthermore', 'Moreover', 'Additionally', 'As a result'.\n"
+        "- Vague openers: 'Played a key role in', 'Was involved in', 'Helped to achieve', 'Was responsible for'.\n"
+        "- Em dash inside bullet descriptions — use comma or period instead.\n"
+        '- "In order to" → "To".\n\n'
+        "LANGUAGE RULE (absolute):\n"
+        "  The JD you receive has been pre-translated to English if it was originally German. Write in English\n"
+        "  only. Every word in every field must be English. Never paste a German term into Core Competencies,\n"
+        "  and never append a German parenthetical after an English term.\n"
+        "  ✗ WRONG: 'Data Quality Assurance (Qualitätssicherung der Daten)'\n"
+        "  ✓ RIGHT: 'Data Quality Assurance'\n\n"
         "RESPONSE: Output the JSON object immediately — start with `{`. No preamble, no reasoning, no explanation. Valid JSON only. No markdown. No code fences.\n"
     )
 
 
 def _build_cl_system() -> str:
+    # ── Interpolated config values ────
+    edu_current   = config.PROFILE_EDUCATION.get("current", {}) or {}
+    de_lang       = config.PROFILE_LANGUAGES.get("german", {}) or {}
+    msc_degree    = edu_current.get("degree", "MSc Business Analytics")
+    msc_start     = _fmt_date(edu_current.get("start", ""))
+    msc_framing   = edu_current.get("framing", "formalising what I've practiced for the past 3 years")
+    de_level      = de_lang.get("level", "A2")
+    de_status     = de_lang.get("status", "actively progressing")
+    de_triggers   = ", ".join(f"'{t}'" for t in (de_lang.get("trigger_in_cl_when") or ["Bavaria", "Munich", "Austria"]))
+    projects      = config.PROFILE_PROJECTS or {}
+    project1_name = (projects.get("project1", {}) or {}).get("name", "Supplier Spend Analytics and Cost Dashboard")
+    project2_name = (projects.get("project2", {}) or {}).get("name", "Insurance Operations Reporting Automation")
+    project1_when = ", ".join((projects.get("project1", {}) or {}).get("lead_when_jd_matches", []))
+    project2_when = ", ".join((projects.get("project2", {}) or {}).get("lead_when_jd_matches", []))
+
     return (
         "You are an expert cover letter writer for business analytics, finance, and operations roles."
         " You have 15+ years of experience writing cover letters that pass ATS and impress hiring managers.\n\n"
@@ -312,97 +463,75 @@ def _build_cl_system() -> str:
         "COVER LETTER STRUCTURE — follow exactly, 5 paragraphs:\n\n"
         "Para 1 — STORY-FIRST OPENING (~80 words):\n"
         "  - OPEN WITH A SPECIFIC 1-SENTENCE MOMENT from your own work — a number, a discovery, a fix you made.\n"
-        "    The first sentence MUST be about something YOU did, not about the company. Example:\n"
-        "      OK:  'When I rebuilt Accenture's weekly insurance reporting, I cut six hours of manual work to 45 minutes — and that is the kind of operational rigor [Company] needs in its [team].'\n"
-        "      OK:  'A 12% procurement deviation that had gone undetected for two quarters is what taught me how much depends on a single well-designed report — exactly the discipline [Company]'s [team] runs on.'\n"
-        "  - BANNED OPENINGS — these are obvious templates and instant-reject signals to recruiters:\n"
-        "      * 'X sits at the intersection of Y and Z'\n"
-        "      * '[Company] is a leader in...' / '[Company] is at the forefront of...'\n"
-        "      * 'I am writing to apply...' / 'I am excited to...' / 'I am thrilled...'\n"
-        "      * 'Few companies operate at the scale...'\n"
-        "      * Any sentence whose first 8 words could be reused verbatim for a different company.\n"
+        "    The first sentence MUST be about something YOU did, not about the company.\n"
+        "  - BANNED OPENINGS: 'X sits at the intersection of...', '[Company] is a leader in...',\n"
+        "    '[Company] is at the forefront of...', 'I am writing to apply...', 'I am excited to...',\n"
+        "    'I am thrilled...', 'Few companies operate at the scale...', any sentence whose first 8\n"
+        "    words could be reused verbatim for a different company.\n"
         "  - After the opening sentence, connect that moment to why this specific role + team fits.\n"
-        "  - VARY THE LEAD STORY — across applications, rotate which anecdote opens (procurement discovery,\n"
-        "    reporting automation, PMO save, stakeholder presentation). Do not anchor every CL on the same metric.\n\n"
+        "  - Vary the lead story across applications — do not anchor every CL on the same metric.\n\n"
         "Para 2 — EXPERIENCE MAPPED TO JD (~100 words):\n"
-        "  - Explain how your experience fits the role.\n"
-        "  - Reference time at Accenture Solutions and Chintamani Thermal Technologies — show how skills match the JD.\n"
-        "  - Demonstrate expertise in Power BI, Python, SQL, Excel, SAP with specific examples.\n"
+        "  - Explain how experience fits the role. Reference both employers and show how skills match the JD.\n"
         "  - Include at least 2 believable quantified metrics.\n"
-        "  - The story you opened Para 1 with is OFF LIMITS here — do not repeat it. Use different angles.\n\n"
+        "  - The Para 1 opening story is OFF LIMITS here — use different angles.\n\n"
         "Para 3 — PROJECT DEEP-DIVE (~70 words):\n"
-        "  - PICK ONE project — the one most relevant to this JD — and go DEEP:\n"
-        "      * If the JD emphasises reporting/automation/Python/SQL → lead with INSURANCE OPERATIONS REPORTING AUTOMATION.\n"
-        "      * If the JD emphasises procurement/cost/PMO/governance/dashboards → lead with SUPPLIER SPEND ANALYTICS AND COST DASHBOARD.\n"
+        "  - PICK ONE project and go DEEP (~55 words on it; ~15-word 1-sentence nod to the other):\n"
+        f"      * JD emphasises {project2_when or 'reporting / automation / Python / SQL'} → lead with **{project2_name}**.\n"
+        f"      * JD emphasises {project1_when or 'procurement / cost / PMO / governance / dashboards'} → lead with **{project1_name}**.\n"
         "      * If the JD covers both, pick whichever scored higher in keyword overlap.\n"
-        "  - Spend ~55 words on the chosen project: what was built, what method, what changed.\n"
-        "  - Spend the remaining ~15 words on a 1-sentence nod to the second project as supporting evidence.\n"
-        "  - Both project names must still appear in **bold**, but the depth is asymmetric.\n"
+        "  - Both project names appear in **bold**, but the depth is asymmetric.\n"
+        "  - MANDATORY: the 1-sentence nod to the SECOND project MUST include either a number\n"
+        "    (percentage, hours saved, records processed, weekly cycles) or a named concrete\n"
+        "    outcome (e.g. 'clearing a 2-cycle backlog'). BANNED filler for the second-project\n"
+        "    sentence: 'demonstrated my ability to', 'showcased my capability in', 'provided\n"
+        "    experience with', 'gave me exposure to' — these are placeholders, not evidence.\n"
         "  - NEVER end this paragraph with an unfinished sentence or a dangling article ('The ', 'A ').\n\n"
         "Para 4 — CONTRIBUTION (~60 words):\n"
         "  - Describe what you will contribute if selected.\n"
         "  - Emphasise data-driven decision-making and cross-functional collaboration.\n"
-        "  - Frame your skills as direct solutions to the company's needs.\n"
-        "  - Do NOT claim 'my MSc has prepared me for X'. The MSc started March 2026 — frame it as\n"
-        "    'my MSc in Business Analytics is where I'm formalising what I've practiced for the past 3 years'.\n\n"
+        f"  - If mentioning the {msc_degree} (started {msc_start}), frame it as '{msc_framing}'.\n"
+        "    Never claim 'my MSc has prepared me for X' — it is too new for that.\n\n"
         "Para 5 — CLOSING (~50 words):\n"
-        "  - Confident closing expressing genuine excitement about the opportunity.\n"
-        "  - Mention readiness to relocate or work flexibly (Werkstudent hours, 20 hrs/week).\n"
-        "  - GERMAN HANDLING (mandatory): if the JD is in German OR the location is in Bavaria/Munich/Austria,\n"
-        "    include ONE short factual sentence about German: 'currently at A2 and actively progressing through\n"
-        "    daily exposure in Ingolstadt' (or similar). Never overstate; A2 is the truth.\n"
-        "  - End with a SPECIFIC call-to-action, not a generic 'I look forward to hearing from you'. Example:\n"
-        "    'I would welcome a 20-minute conversation about how I can support [team] this semester.'\n\n"
-        "━━━ COMPANY NAME RULE — mandatory ━━━\n"
-        "  The company's name (e.g. 'Allianz', 'CARIAD', 'BMW') MUST appear AT LEAST TWICE across the 5\n"
-        "  paragraph bodies — not just in the header/subject. Recruiters do Ctrl-F for the company name to\n"
-        "  check the CL is genuinely for them, not a recycled template. Use the SHORT form (e.g. 'Allianz',\n"
-        "  not always 'Allianz SE'). Natural placements: para 1 (when bridging to the role), para 4\n"
-        "  (contribution), para 5 (close).\n\n"
-        "━━━ EDUCATION-PATH BRIDGE — optional but encouraged ━━━\n"
-        "  Candidate's path: BCom Cost Accounting → PGDM Supply Chain → MSc Business Analytics.\n"
-        "  When natural (typically para 1 or para 4), one 6–10 word phrase can frame this as a deliberate\n"
-        "  move toward the data layer of business — e.g. 'from cost accounting through supply chain into\n"
-        "  the data side of operations'. Do NOT force it if the JD focus is unrelated to this arc.\n\n"
-        "━━━ FEASIBILITY LAW — claims must be defensible in interview ━━━\n"
-        "  TIMELINE: Chintamani = March 2025 → Feb 2026. Accenture = Nov 2022 → Feb 2025.\n"
-        "    ZERO-TOLERANCE: ChatGPT, Claude, Gemini, GPT-4, Microsoft Copilot, MS365 Copilot, internal\n"
-        "    AI tools, Prompt Engineering, RAG, vector DBs, agentic workflows, AI Governance — these claims\n"
-        "    MAY ONLY be attributed to Chintamani (March 2025+). Never to Accenture, not even framed as\n"
-        "    'exposure' / 'research on' / 'documentation of'. Corporate LLM adoption did not happen at scale\n"
-        "    before mid-2024; attributing it to Accenture (which ended Feb 2025) is a timeline mismatch a\n"
-        "    recruiter will catch in seconds.\n"
-        "  SENIORITY: Accenture was a New Associate role — use 'supported / contributed to / assisted with /\n"
-        "    analysed', NOT 'led / owned / managed a team / drove strategy / mentored 20 people'.\n"
-        "    Chintamani as Assistant Manager allows 'coordinated / built / delivered / presented to senior mgmt'.\n"
-        "  SCOPE: 50k records, 6 supplier categories, 5-analyst team, 3 client accounts — believable.\n"
-        "    NOT believable: millions of records, 50+ reports, company-wide transformations, multi-million-€ P&L.\n"
-        "  TOOLS: Primary tools (Power BI, Python/Pandas, SQL, Excel VBA/Power Query, SAP FI/CO,\n"
-        "    Power Automate, MS365, Tableau) may be claimed directly.\n"
-        "    Adjacent JD tools (Azure, Looker, R, JIRA, Confluence, Qlik, Snowflake, dbt, Power Apps, etc.)\n"
-        "    → create a brief plausible exposure mention: 'supported pipelines feeding into Azure',\n"
-        "    'gained exposure to Looker during BI consolidation', 'tracked work in JIRA'.\n"
-        "    NEVER claim architectural ownership of adjacent tools — contribution/exposure language only.\n"
-        "  FRAMING for adjacent/stretch skills: use 'supported X', 'contributed to Y', 'exposure to Z',\n"
-        "    'gained experience with Z through X project' — NEVER 'owned', 'built from scratch', 'transformed company-wide'.\n\n"
-        "━━━ INLINE BOLD HIGHLIGHTING — make 3–6 JD keywords pop in the body ━━━\n"
-        "  Wrap with **double asterisks** to render BOLD in the DOCX:\n"
-        "    - Company name (e.g. **Allianz**) on its 1st and 2nd mention in the body — already required.\n"
-        "    - Project names (**Supplier Spend Analytics and Cost Dashboard**, **Insurance Operations Reporting Automation**) — already required.\n"
-        "    - JD-driven keywords on FIRST occurrence only: the 3–6 most central tools/methodologies from the JD\n"
-        "      (e.g. **Power BI**, **Python (Pandas)**, **SQL**, **SAP FI/CO**, **Variance Analysis**, **Financial Reporting**).\n"
-        "    - TOTAL bold spans across the 5 paragraphs: 6–10. Never above 12 — over-bolding looks like a keyword dump.\n"
-        "    - Do NOT bold verbs, generic words, dates, or numbers.\n"
-        "    - Do NOT bold the same keyword twice in the body — first occurrence only.\n\n"
+        "  - Confident closing. Mention readiness for Werkstudent hours (20 hrs/week) and relocation if relevant.\n"
+        f"  - GERMAN HANDLING (mandatory): if the JD is in German OR the location matches {de_triggers},\n"
+        f"    include ONE short factual sentence about German: 'currently at {de_level} and {de_status}' (or similar).\n"
+        f"    Never overstate — {de_level} is the truth.\n"
+        "  - End with a SPECIFIC call-to-action, not a generic 'I look forward to hearing from you'.\n\n"
+        "━━━ COMPANY NAME RULE ━━━\n"
+        "  The company's name MUST appear AT LEAST TWICE across the 5 paragraph bodies — not just in the\n"
+        "  header/subject. Use the SHORT form (e.g. 'Allianz', not always 'Allianz SE'). Natural placements:\n"
+        "  para 1 (bridging to the role), para 4 (contribution), para 5 (close).\n\n"
+        "━━━ EDUCATION-PATH BRIDGE — optional ━━━\n"
+        "  Candidate's arc: BCom Cost Accounting → PGDM Supply Chain → MSc Business Analytics. When natural,\n"
+        "  one 6–10 word phrase can frame this as a deliberate move toward the data layer of business —\n"
+        "  e.g. 'from cost accounting through supply chain into the data side of operations'. Do NOT force it.\n\n"
+        "━━━ AI-CLAIM HONESTY — do not invent AI experience ━━━\n"
+        "  For an AI-focused JD, do NOT fabricate AI credentials to seem relevant. FORBIDDEN in the CL:\n"
+        "    - claiming 'self-directed study of machine learning', 'self-taught AI', online AI courses,\n"
+        "      or naming learning platforms (LinkedIn Learning, Coursera, Degreed, etc.) she did not do;\n"
+        "    - claiming hands-on experience with ChatGPT/Copilot/LLMs/RAG/prompt engineering at work;\n"
+        "    - claiming 'machine learning foundations' or 'AI governance experience' as things she has done.\n"
+        "  Her honest AI position: an analytics practitioner with strong data/reporting/PMO skills who is\n"
+        "  MOVING TOWARD the AI space through her MSc, and whose transferable strengths (making complex\n"
+        "  data legible, communication, documentation, stakeholder rigour) are what an AI Office actually\n"
+        "  needs from a working student. Frame the AI connection through those REAL strengths and genuine\n"
+        "  curiosity — never through invented study or fabricated tool experience. If the MSc touches AI/ML,\n"
+        "  frame it as 'beginning to study' / 'formalising', never as established expertise.\n\n"
+        f"{_build_shared_law()}\n\n"
+        "━━━ INLINE BOLD HIGHLIGHTING — 3–6 JD keywords pop in the body ━━━\n"
+        "  Wrap with **double asterisks**:\n"
+        "    - Company name on its 1st and 2nd mention.\n"
+        f"    - Project names (**{project1_name}**, **{project2_name}**).\n"
+        "    - JD-driven keywords on FIRST occurrence only (3–6 most central tools/methodologies).\n"
+        "    - TOTAL bold spans across the 5 paragraphs: 6–10. Never above 12.\n"
+        "    - Do NOT bold verbs, generic words, dates, numbers, or the same keyword twice in the body.\n\n"
         "RULES:\n"
         "- Take reference from the CV content provided.\n"
-        "- Sound human, confident, and natural — not AI-generated. Must NOT be detectable by AI detection software.\n"
-        '- Never use: cutting-edge, delve, foster, garner, showcase, transformative, synergy, pivotal, "serves as", "boasts", furthermore, moreover, "i am writing to", "i am excited to", "i would like to express", "strong work ethic", "team player", "attention to detail", "proven track record", "highly motivated", "played a key role", "needless to say", "forward-thinking", "forward thinking", "emerging technologies", "next-generation", "next generation", "game-changing", "world-class", "industry-leading", "thought leadership"\n'
-        "  (Note: 'leveraged', 'utilised', 'enhanced', 'robust', 'impactful', 'proactive' are PERMITTED — use sparingly and naturally.)\n"
+        "- Sound human, confident, and natural — not AI-generated.\n"
         '- No "I am passionate about" — show passion through a specific concrete example.\n'
-        "- No transition openers (Furthermore, Moreover, Additionally) — lead every paragraph with the actual point.\n"
+        "- No transition openers (Furthermore, Moreover, Additionally).\n"
         "- Vary paragraph rhythm: mix short direct sentences with longer technical ones.\n"
-        "- LANGUAGE: English only throughout. Translate all German JD terms to English before writing.\n\n"
+        "- LANGUAGE: English only throughout. The JD has been pre-translated to English if it was German.\n\n"
         "Respond with valid JSON only. No markdown. No code fences.\n"
     )
 
@@ -549,20 +678,23 @@ _DEFAULTS: dict = {
 
 
 class CVGenerator:
-    def __init__(self, tracker=None):
+    def __init__(self, tracker=None, model: str | None = None):
         self.client = anthropic.Anthropic(api_key=config.ANTHROPIC_API_KEY)
         self._tracker = tracker
+        # Generation model. Defaults to the global config model; a "dream
+        # application" (/apply opus) constructs a generator pinned to Opus.
+        self.model = model or config.CLAUDE_MODEL
 
     def _log_cost(self, job_id: str, call_type: str, response) -> None:
         if not self._tracker:
             return
         cost = calc_cost(
-            config.CLAUDE_MODEL,
+            self.model,
             response.usage.input_tokens,
             response.usage.output_tokens,
         )
         self._tracker.log_api_cost(
-            job_id, call_type, config.CLAUDE_MODEL,
+            job_id, call_type, self.model,
             response.usage.input_tokens, response.usage.output_tokens, cost,
         )
 
@@ -578,7 +710,8 @@ class CVGenerator:
         if jd_focus:
             # Strategic brief goes FIRST — Claude reads the writing brief before the JD
             prompt = f"{jd_focus}\n\n" + prompt
-        if jd_keywords:
+        filtered_keywords = filter_ats_banlist(jd_keywords or [])
+        if filtered_keywords:
             kw_block = (
                 f"\n\n{'='*50}\n"
                 "MANDATORY ATS KEYWORDS — every item below MUST appear verbatim (exact spelling/casing) in the CV.\n"
@@ -590,7 +723,7 @@ class CVGenerator:
                 "  • If it is a methodology/domain term → list in Core Competencies and connect it to the\n"
                 "    closest real experience you have.\n"
                 "Do NOT skip any keyword because it feels like a stretch — create a plausible mention.\n"
-                f"{chr(10).join(f'  • {k}' for k in jd_keywords)}\n"
+                f"{chr(10).join(f'  • {k}' for k in filtered_keywords)}\n"
                 f"{'='*50}\n"
             )
             prompt = kw_block + "\n" + prompt
@@ -602,10 +735,10 @@ class CVGenerator:
                 f"{'='*50}\n"
             )
 
-        logger.info(f"Generating CV content for {job.title} @ {job.company}")
+        logger.info(f"Generating CV content for {job.title} @ {job.company} [{self.model}]")
         response = await asyncio.to_thread(
             self.client.messages.create,
-            model=config.CLAUDE_MODEL,
+            model=self.model,
             max_tokens=4500,
             system=[{"type": "text", "text": get_prompt("cv_system"), "cache_control": {"type": "ephemeral"}}],
             messages=[{"role": "user", "content": prompt}],
@@ -677,7 +810,8 @@ class CVGenerator:
                 f"{'='*50}\n"
             )
             prompt = cv_block + "\n" + prompt
-        if jd_keywords:
+        filtered_keywords = filter_ats_banlist(jd_keywords or [])
+        if filtered_keywords:
             kw_block = (
                 f"\n\n{'='*50}\n"
                 "MANDATORY ATS KEYWORDS — every keyword below must appear verbatim (exact spelling/casing).\n"
@@ -685,7 +819,7 @@ class CVGenerator:
                 "For adjacent tools not in your primary toolkit: include a brief exposure phrase\n"
                 "  ('gained experience with X', 'contributed to workflows involving X').\n"
                 "Do NOT skip any keyword — zero gaps allowed.\n"
-                f"{chr(10).join(f'  • {k}' for k in jd_keywords)}\n"
+                f"{chr(10).join(f'  • {k}' for k in filtered_keywords)}\n"
                 f"{'='*50}\n"
             )
             prompt = kw_block + "\n" + prompt
@@ -697,10 +831,10 @@ class CVGenerator:
                 f"{'='*50}\n"
             )
 
-        logger.info(f"Generating CL content for {job.title} @ {job.company}")
+        logger.info(f"Generating CL content for {job.title} @ {job.company} [{self.model}]")
         response = await asyncio.to_thread(
             self.client.messages.create,
-            model=config.CLAUDE_MODEL,
+            model=self.model,
             max_tokens=2500,
             system=[{"type": "text", "text": get_prompt("cl_system"), "cache_control": {"type": "ephemeral"}}],
             messages=[{"role": "user", "content": prompt}],

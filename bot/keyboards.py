@@ -25,6 +25,7 @@ def confirm_apply_keyboard(job_id: str) -> InlineKeyboardMarkup:
             InlineKeyboardButton("📝 Add Notes & Apply", callback_data=f"notes:{job_id}"),
             InlineKeyboardButton("⚡ Apply Now (no notes)", callback_data=f"applynow:{job_id}"),
         ],
+        [InlineKeyboardButton("💎 Dream Apply (Opus — premium)", callback_data=f"applyopus:{job_id}")],
         [InlineKeyboardButton("↩ Back", callback_data=f"back:{job_id}")],
     ])
 

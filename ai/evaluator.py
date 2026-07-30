@@ -54,6 +54,20 @@ BANNED_WORDS: List[str] = [
 
 BANNED_WORDS_EXACT: List[str] = ["dynamic", "diverse"]
 
+# Sync with the generator prompt: import the canonical list of prompt-banned
+# terms and union in anything the scanner doesn't already catch (via a shorter
+# substring). This guarantees the Python scanner is a superset of the prompt
+# banlist — it can never report `banned=none` while shipping a phrase the prompt
+# forbids. Keeping the two in one source of truth is what closes that hole.
+from ai.cv_generator import _PROMPT_BANNED_TERMS  # noqa: E402  (single source of truth)
+
+_scan_lower = [w.lower() for w in BANNED_WORDS]
+for _t in _PROMPT_BANNED_TERMS:
+    _tl = _t.lower()
+    if not any(_w in _tl for _w in _scan_lower):  # not already covered by a substring
+        BANNED_WORDS.append(_t)
+        _scan_lower.append(_tl)
+
 _EXACT_PATTERNS = {w: re.compile(rf"\b{re.escape(w)}\b", re.IGNORECASE)
                    for w in BANNED_WORDS_EXACT}
 

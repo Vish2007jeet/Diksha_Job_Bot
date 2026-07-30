@@ -36,6 +36,9 @@ def _yaml(section: str, key: str, env_var: str = "", default=None):
 # ── Anthropic ────────────────────────────────────────────────
 ANTHROPIC_API_KEY: str = _yaml("api_keys", "anthropic_api_key", "ANTHROPIC_API_KEY") or os.environ["ANTHROPIC_API_KEY"]
 CLAUDE_MODEL: str = _yaml("settings", "claude_model", "CLAUDE_MODEL", "claude-sonnet-4-6")
+# Model used for a "dream application" (/apply opus) — CV/CL generation only.
+# Overridable in user_config.yaml (settings.dream_model) if the ID changes.
+DREAM_MODEL: str = _yaml("settings", "dream_model", "DREAM_MODEL", "claude-opus-4-8")
 MIN_QUALITY_SCORE: int = int(_yaml("settings", "min_quality_score", "MIN_QUALITY_SCORE", 90))
 SCAN_TIMEOUT_HOURS: int = int(_yaml("settings", "scan_timeout_hours", "SCAN_TIMEOUT_HOURS", 2))
 JD_FETCH_CONCURRENCY: int = int(_yaml("settings", "jd_fetch_concurrency", "JD_FETCH_CONCURRENCY", 6))
@@ -73,6 +76,22 @@ CV_STAR_SECTION_LABELS: List[str] = _profile.get("cv_star_section_labels") or [
     "7.4 Role 4 Experience",
     "7.5 Extracurricular / Projects",
 ]
+
+# ── Structured Profile Config (per-employer metadata + shared knobs) ──
+# Consumed by ai/cv_generator.py to build the Feasibility Law dynamically
+# and by documents/pipeline.py's timeline-gate validator. Employer names
+# (chintamani, accenture) are fixed — the wiring is by named blocks, not a list.
+PROFILE_CHINTAMANI: dict = _profile.get("chintamani", {}) or {}
+PROFILE_ACCENTURE:  dict = _profile.get("accenture",  {}) or {}
+PROFILE_PROJECTS:   dict = _profile.get("projects",   {}) or {}
+PROFILE_EDUCATION:  dict = _profile.get("education",  {}) or {}
+PROFILE_LANGUAGES:  dict = _profile.get("languages",  {}) or {}
+
+AI_TIMELINE_GATE: str = _profile.get("ai_tool_timeline_gate") or "2024-06"
+AI_TOOL_TERMS: List[str] = _profile.get("ai_tool_terms") or []
+PRIMARY_TOOLS: List[str] = _profile.get("primary_tools") or []
+ADJACENT_TOOL_EXAMPLES: List[str] = _profile.get("adjacent_tool_examples") or []
+ANCHOR_METRICS: List[str] = _profile.get("anchor_metrics") or []
 
 # ── Search Parameters ─────────────────────────────────────────
 def _split(val: str) -> List[str]:
@@ -184,6 +203,11 @@ def _load_bot_setting(key: str, default):
 
 HUMANIZE_ENABLED: bool = bool(_load_bot_setting("humanize_enabled", True))
 ATS_SCORE_TARGET: int  = int(_load_bot_setting("ats_score_target", 80))
+# Cover letters are read by recruiters, not ATS-scanned the way CVs are. A high
+# CL ATS gate just forces keyword-stuffing retries that provably don't move the
+# score (72→72) and make the letter read like a machine wrote it. Hold the CL to
+# a deliberately lower bar so the humanized, natural-voice letter ships.
+CL_ATS_SCORE_TARGET: int = int(_load_bot_setting("cl_ats_score_target", 70))
 CV_BEST_OF_N: int      = max(1, int(_load_bot_setting("cv_best_of_n", 1)))
 CL_BEST_OF_N: int      = max(1, int(_load_bot_setting("cl_best_of_n", 1)))
 

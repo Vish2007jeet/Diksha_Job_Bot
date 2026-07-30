@@ -21,6 +21,7 @@ from ai.evaluator import DocumentEvaluator, check_banned_words, cv_dict_to_text,
 from ai.humanizer import ContentHumanizer
 from documents.exporter import DocumentExporter
 from documents.template_engine import TemplateEngine
+from utils.jd_translator import translate_jd_if_german
 from utils.logger import logger
 from utils.models import ApplicationResult, JobListing
 
@@ -44,6 +45,7 @@ def _short_model_name(model_id: str) -> str:
     family, major, minor = m.groups()
     return f"{family.capitalize()} {major}.{minor}"
 _CALL_LABEL = {
+    "jd_translation": "Stage 0 · JD Translate ",
     "jd_analysis":  "Stage 1 · JD Analysis ",
     "cv":           "Stage 2 · CV Generate  ",
     "cv_humanizer": "Stage 3 · CV Humanizer ",
@@ -179,12 +181,22 @@ def _build_expense_report(job, tracker) -> str:
 
 
 # ── Word count validator (2-page guard) ───────────────────────
+# The caps below are the TARGETS handed to the model in the prompt. The
+# validator that blocks generation applies a small tolerance on top — a 2-page
+# CV does not actually overflow because a section runs 2 words long, and
+# forcing a full regeneration (or last-resort ship) over a trivial overage
+# causes more harm than the overage itself. Only a genuine overflow blocks.
 
 _CV_WORD_LIMITS = {
     "summary": 65,
 }
 _BULLET_DESC_WORD_LIMIT = 30
 _PROJECT_DESC_WORD_LIMIT = 20
+
+# Words a section may exceed its cap by before it counts as a real overflow.
+_SUMMARY_WC_TOLERANCE = 8
+_BULLET_WC_TOLERANCE  = 5
+_PROJECT_WC_TOLERANCE = 4
 
 
 def _wc(text: str) -> int:
@@ -194,14 +206,15 @@ def _wc(text: str) -> int:
 
 def _check_cv_word_counts(cv_content: dict) -> List[str]:
     """
-    Return a list of word-count violations that would push the CV past 2 pages.
-    Checks summary, competencies, each bullet description, and project descriptions.
+    Return word-count violations that would genuinely push the CV past 2 pages.
+    Each section is allowed a small tolerance over its target cap (see the
+    _*_WC_TOLERANCE constants) so trivial overages don't force a regeneration.
     """
     violations: List[str] = []
 
     for field, limit in _CV_WORD_LIMITS.items():
         count = _wc(cv_content.get(field, ""))
-        if count > limit:
+        if count > limit + _SUMMARY_WC_TOLERANCE:
             violations.append(
                 f"{field}: {count} words — EXCEEDS {limit}-word cap by {count - limit} word(s). "
                 f"Trim to fit 2 pages."
@@ -213,7 +226,7 @@ def _check_cv_word_counts(cv_content: dict) -> List[str]:
             # so bold formatting does not inflate word counts.
             plain = re.sub(r'\*\*', '', bullet)
             count = len(plain.split())
-            if count > _BULLET_DESC_WORD_LIMIT:
+            if count > _BULLET_DESC_WORD_LIMIT + _BULLET_WC_TOLERANCE:
                 violations.append(
                     f"{role}[{i}]: {count} words — EXCEEDS {_BULLET_DESC_WORD_LIMIT}-word cap by "
                     f"{count - _BULLET_DESC_WORD_LIMIT} word(s). Cut words, keep the fact."
@@ -221,7 +234,7 @@ def _check_cv_word_counts(cv_content: dict) -> List[str]:
 
     for field, limit in (("project1_desc", _PROJECT_DESC_WORD_LIMIT), ("project2_desc", _PROJECT_DESC_WORD_LIMIT)):
         count = _wc(cv_content.get(field, ""))
-        if count > limit:
+        if count > limit + _PROJECT_WC_TOLERANCE:
             violations.append(
                 f"{field}: {count} words — EXCEEDS {limit}-word cap by {count - limit} word(s)."
             )
@@ -274,40 +287,196 @@ def _sanitize_competencies(text: str) -> str:
     return sep.join(cleaned)
 
 
-# ── Accenture feasibility validator ────────────────────────────
-# Accenture role ran Nov 2022 – Feb 2025 — corporate LLM/AI adoption did not
-# happen at scale in that window. Any AI/LLM term on an Accenture bullet is a
-# timeline mismatch a recruiter will catch in seconds. Force a retry if found.
+# ── Unbacked Core Competency validator ────────────────────────
+# Every Core Competencies item that is not a Primary Tool must appear (as a
+# substring, case-insensitive) in at least one bullet, project description, or
+# the summary. Catches recruit-killing stretch claims like "AI Governance"
+# listed alone with no bullet to back it up.
 
-_ACCENTURE_BANNED_RE = re.compile(
+def _competency_items(text: str) -> List[str]:
+    """Split a Core Competencies string on `·`/`|`/`,` and strip bold markers."""
+    if not text:
+        return []
+    for sep in (" · ", " | "):
+        if sep in text:
+            parts = text.split(sep)
+            break
+    else:
+        parts = text.split(",")
+    items = []
+    for p in parts:
+        clean = re.sub(r"\*\*", "", p).strip()
+        if clean:
+            items.append(clean)
+    return items
+
+
+# High-risk competency patterns — these are recruiter-grep tripwires. If they
+# appear in Core Competencies but nowhere in the bullets/projects/summary, a
+# reader will spot the fluff instantly. Standard methodologies (Variance
+# Analysis, KPI Dashboards, Financial Reporting) are NOT here — recruiters
+# accept them as tool-adjacent skills without a bullet.
+_HIGH_RISK_COMPETENCY_RE = re.compile(
     r"\b("
-    r"AI|A\.I\.|ML|LLM|LLMs|ChatGPT|Claude|Gemini|Bard|Copilot|"
-    r"GPT-?[0-9]?|RAG|agentic|prompt\s+engineering|"
-    r"AI\s+Governance|generative\s+AI|GenAI|"
-    r"artificial\s+intelligence|machine\s+learning|"
-    r"MS365\s+Copilot|Microsoft\s+Copilot|"
-    r"vector\s+(?:database|DB|store)|embeddings?\s+model"
+    r"AI\s+Governance|AI\s+Awareness|Machine\s+Learning(?:\s+Awareness)?|"
+    r"ML\s+Ops|MLOps|Generative\s+AI|GenAI|Prompt\s+Engineering|"
+    r"LLM(?:s)?|RAG|Vector\s+(?:Databases?|Stores?)|Agentic|"
+    r"AI\s+Literacy|AI\s+Ethics|AI\s+Compliance"
     r")\b",
     re.IGNORECASE,
 )
 
 
-def _check_accenture_feasibility(cv_content: dict) -> List[str]:
+def _check_unbacked_competencies(cv_content: dict) -> List[str]:
     """
-    Return a list of Accenture bullets that contain AI/LLM era-mismatch terms.
-    Accenture timeline: Nov 2022 – Feb 2025 (pre-corporate-LLM rollout).
-    These claims belong on Chintamani bullets only (Mar 2025+).
+    Return Core Competencies items that (a) match the high-risk pattern OR are
+    an adjacent tool from config.ADJACENT_TOOL_EXAMPLES, AND (b) do not appear
+    (as a substring, case-insensitive) in any bullet, project description, or
+    the summary.
+
+    Standard methodologies pass unchecked — recruiters accept 'Financial
+    Reporting' or 'Variance Analysis' in Competencies without a bullet. The
+    catch is for AI/ML-adjacent claims and adjacent tools that a Group AI
+    Office recruiter would grep-search and find no story behind.
     """
+    competencies = _competency_items(cv_content.get("competencies", ""))
+    if not competencies:
+        return []
+
+    adjacent_lower = {t.lower() for t in (config.ADJACENT_TOOL_EXAMPLES or [])}
+    # Corpus a competency must appear in.
+    corpus_parts = [cv_content.get("summary", ""),
+                    cv_content.get("project1_desc", ""),
+                    cv_content.get("project2_desc", "")]
+    for role_key in ("chintamani", "accenture"):
+        corpus_parts.extend(cv_content.get(role_key, []))
+    corpus = " ".join(re.sub(r"\*\*", "", p or "") for p in corpus_parts).lower()
+
+    unbacked: List[str] = []
+    for item in competencies:
+        item_lower = item.lower()
+        head = item_lower.split("(")[0].strip()
+        is_risky = bool(_HIGH_RISK_COMPETENCY_RE.search(item))
+        is_adjacent = head in adjacent_lower
+        if not (is_risky or is_adjacent):
+            continue
+        if item_lower not in corpus:
+            unbacked.append(item)
+    return unbacked
+
+
+# ── Seniority forbidden-verb validator ────────────────────────
+# Each employer's config block carries a `forbidden_verbs` list (e.g. Accenture
+# New Associate must never "own/lead/manage/architect"). The system prompt states
+# this, but the model still slips occasionally ("Owned SLA Management reporting").
+# This validator catches a forbidden verb used as a bullet's OPENING word and
+# forces a retry — same belt-and-braces approach as the timeline gate.
+
+def _leading_word(bullet: str) -> str:
+    """First alphabetic word of a bullet, stripped of ** markers and punctuation."""
+    plain = re.sub(r"\*\*", "", bullet or "").strip()
+    m = re.match(r"[^A-Za-z]*([A-Za-z']+)", plain)
+    return m.group(1).lower() if m else ""
+
+
+def _verb_stem(word: str) -> str:
+    """
+    Crude past-tense stem so 'owned'/'own' and 'managed'/'manage' compare equal.
+    Applied symmetrically to both the bullet's lead word and the config verb, so
+    matching is consistent regardless of which tense the config lists.
+    """
+    w = word.lower()
+    if w.endswith("ed"):
+        return w[:-2]
+    if w.endswith("d"):
+        return w[:-1]
+    return w
+
+
+def _check_forbidden_verbs(cv_content: dict) -> List[str]:
+    """
+    Return violations where a bullet opens with a verb on that role's
+    `forbidden_verbs` config list (e.g. Accenture New Associate must not open
+    with 'Owned'/'Led'/'Managed'). Compares stemmed lead word against the
+    stemmed first token of each forbidden phrase.
+    """
+    key_to_employer = {
+        "chintamani": config.PROFILE_CHINTAMANI,
+        "accenture":  config.PROFILE_ACCENTURE,
+    }
     bad: List[str] = []
-    for i, bullet in enumerate(cv_content.get("accenture", []), 1):
-        plain = re.sub(r"\*\*", "", bullet)
-        matches = _ACCENTURE_BANNED_RE.findall(plain)
-        if matches:
-            unique = sorted({m.strip() for m in matches})
-            bad.append(
-                f"accenture[{i}] contains era-mismatch term(s) {unique}: "
-                f"{plain[:120]}{'…' if len(plain) > 120 else ''}"
-            )
+    for role_key, emp in key_to_employer.items():
+        forbidden_stems = {
+            _verb_stem(v.split()[0])
+            for v in (emp.get("forbidden_verbs") or []) if v.split()
+        }
+        if not forbidden_stems:
+            continue
+        for i, bullet in enumerate(cv_content.get(role_key, []), 1):
+            lead = _leading_word(bullet)
+            if lead and _verb_stem(lead) in forbidden_stems:
+                plain = re.sub(r"\*\*", "", bullet)
+                bad.append(
+                    f"{role_key}[{i}] opens with a seniority-forbidden verb '{lead}' "
+                    f"({emp.get('seniority', '?')} role): {plain[:90]}{'…' if len(plain) > 90 else ''}"
+                )
+    return bad
+
+
+# ── Pre-gate role feasibility validator ────────────────────────
+# Any employer whose `start` is before config.AI_TIMELINE_GATE ran in the
+# pre-corporate-LLM era. LLM/AI-tool claims on those bullets are a timeline
+# mismatch a recruiter will catch instantly. Force a retry if found.
+#
+# The regex includes the config.AI_TOOL_TERMS list plus a small set of AI-era
+# umbrella terms (AI, ML, GenAI, machine learning, artificial intelligence,
+# vector database, embeddings model) that the config list does not enumerate.
+
+def _build_pregate_banned_re() -> re.Pattern:
+    """Build the era-mismatch regex from config.AI_TOOL_TERMS + AI umbrella terms."""
+    extras = [
+        r"AI", r"A\.I\.", r"ML", r"LLMs?", r"Bard", r"generative\s+AI",
+        r"GenAI", r"artificial\s+intelligence", r"machine\s+learning",
+        r"vector\s+(?:database|DB|store)", r"embeddings?\s+model",
+    ]
+    from_config = [re.escape(t) for t in (config.AI_TOOL_TERMS or [])]
+    pattern = r"\b(" + "|".join(from_config + extras) + r")\b"
+    return re.compile(pattern, re.IGNORECASE)
+
+
+_PREGATE_BANNED_RE = _build_pregate_banned_re()
+
+
+def _check_pregate_role_feasibility(cv_content: dict) -> List[str]:
+    """
+    Return a list of bullets on pre-gate employers that contain AI/LLM
+    era-mismatch terms. Iterates schema keys ("chintamani", "accenture") and
+    only enforces the check on the ones whose `start` is before the timeline
+    gate — this way the rule updates automatically if the gate config changes.
+    """
+    from ai.cv_generator import _pre_gate_employers, _employers  # local import to avoid cycle
+
+    # Map schema key → employer dict. Schema keys stay fixed (chintamani/accenture).
+    key_to_employer = {
+        "chintamani": config.PROFILE_CHINTAMANI,
+        "accenture":  config.PROFILE_ACCENTURE,
+    }
+    pre_gate = _pre_gate_employers()
+    pre_gate_keys = {
+        key for key, emp in key_to_employer.items() if emp in pre_gate
+    }
+
+    bad: List[str] = []
+    for role_key in pre_gate_keys:
+        for i, bullet in enumerate(cv_content.get(role_key, []), 1):
+            plain = re.sub(r"\*\*", "", bullet)
+            matches = _PREGATE_BANNED_RE.findall(plain)
+            if matches:
+                unique = sorted({m.strip() for m in matches})
+                bad.append(
+                    f"{role_key}[{i}] contains era-mismatch term(s) {unique}: "
+                    f"{plain[:120]}{'…' if len(plain) > 120 else ''}"
+                )
     return bad
 
 
@@ -592,6 +761,21 @@ async def _fetch_company_fact(company: str) -> str:
     return ""
 
 
+def _salvage_keywords(raw: str) -> list[str]:
+    """
+    Best-effort extraction of the "keywords" array from a truncated/malformed
+    JD-analysis JSON response. The keywords array is emitted first in the schema,
+    so it usually survives even when the tail of the object is cut off.
+    Returns up to 25 keyword strings, or [] if none can be recovered.
+    """
+    m = re.search(r'"keywords"\s*:\s*\[(.*?)(?:\]|$)', raw, re.DOTALL)
+    if not m:
+        return []
+    # Pull every double-quoted string inside the (possibly unterminated) array body.
+    items = re.findall(r'"((?:[^"\\]|\\.)*)"', m.group(1))
+    return [i.strip() for i in items if i.strip()][:25]
+
+
 async def _extract_jd_keywords(jd: str, tracker=None, job_id: str = "") -> tuple[list[str], str]:
     """
     Sonnet-powered deep JD analysis — goes beyond keywords to produce a full
@@ -616,8 +800,12 @@ async def _extract_jd_keywords(jd: str, tracker=None, job_id: str = "") -> tuple
         client = _anthropic.Anthropic(api_key=config.ANTHROPIC_API_KEY)
         response = await asyncio.to_thread(
             client.messages.create,
+            # The strategic brief JSON (25 keywords + 8 bullet briefs + 6 prose
+            # fields) needs ~1800-2200 output tokens. The previous 1200 cap
+            # truncated it mid-string on every run, silently dropping the whole
+            # brief. 2800 leaves headroom; we only pay for tokens actually used.
             model=_ANALYSIS_MODEL,
-            max_tokens=1200,
+            max_tokens=2800,
             messages=[{"role": "user", "content": prompt}],
         )
         if tracker and job_id:
@@ -631,6 +819,12 @@ async def _extract_jd_keywords(jd: str, tracker=None, job_id: str = "") -> tuple
                 response.usage.input_tokens, response.usage.output_tokens, cost,
             )
 
+        if response.stop_reason == "max_tokens":
+            logger.warning(
+                "JD deep analysis hit max_tokens — brief may be truncated; "
+                "will attempt keyword salvage if JSON parse fails."
+            )
+
         raw = response.content[0].text.strip() if response.content else ""
         if raw.startswith("```"):
             parts = raw.split("```")
@@ -639,7 +833,19 @@ async def _extract_jd_keywords(jd: str, tracker=None, job_id: str = "") -> tuple
                 raw = raw[4:]
             raw = raw.strip()
 
-        data = json.loads(raw)
+        try:
+            data = json.loads(raw)
+        except json.JSONDecodeError:
+            # Truncated or malformed JSON — salvage the keywords array at minimum
+            # so ATS coverage still works, and proceed with an empty brief.
+            salvaged = _salvage_keywords(raw)
+            if salvaged:
+                logger.warning(
+                    f"JD analysis JSON unparseable — salvaged {len(salvaged)} keyword(s), "
+                    "proceeding without the strategic brief."
+                )
+                return salvaged, ""
+            raise
 
         # Legacy flat-list fallback
         if isinstance(data, list):
@@ -694,9 +900,14 @@ async def _extract_jd_keywords(jd: str, tracker=None, job_id: str = "") -> tuple
 
 
 class DocumentPipeline:
-    def __init__(self, tracker=None):
+    def __init__(self, tracker=None, gen_model: str | None = None):
+        # gen_model overrides the CV/CL generation model only (a "dream
+        # application" pins it to Opus). The evaluator stays on the global
+        # model so the ATS bar is identical across normal and dream applies,
+        # and the humanizer stays on Haiku. gen_model=None → global default.
         self._tracker   = tracker
-        self.generator  = CVGenerator(tracker=tracker)
+        self.gen_model  = gen_model or config.CLAUDE_MODEL
+        self.generator  = CVGenerator(tracker=tracker, model=gen_model)
         self._humanizer = ContentHumanizer(tracker=tracker)
         self._evaluator = DocumentEvaluator(tracker=tracker)
         self.engine     = TemplateEngine()
@@ -753,6 +964,21 @@ class DocumentPipeline:
                     logger.warning(f"Re-fetch returned empty body for {job.job_id} — proceeding without JD")
             except Exception as exc:
                 logger.warning(f"Re-fetch failed for {job.job_id}: {exc} — proceeding without JD")
+
+        # Stage 0: If JD is German, translate to English once (Haiku, cached).
+        # All downstream stages (keyword extraction, CV/CL generation, humanizer,
+        # ATS eval) then work off English text — no per-stage translation cost.
+        if jd:
+            jd_english = await translate_jd_if_german(jd, tracker=self._tracker, job_id=job.job_id)
+            if jd_english is not jd:
+                jd = jd_english
+                job.description = jd
+
+        # NOTE ON CL COORDINATION:
+        # The CV loop (with its retries) runs to completion FIRST. Only then does
+        # `_cl_loop` start against the winning CV. No CL call ever fires for a
+        # rejected CV attempt. The CL has its OWN independent retry loop for ATS
+        # / banned-word failures — that runs against the same (final) CV each time.
 
         # Stage 1: JD analysis — keywords + role-focus (Haiku, ~$0.0005)
         jd_keywords, jd_focus = await _extract_jd_keywords(jd, tracker=self._tracker, job_id=job.job_id)
@@ -832,10 +1058,26 @@ class DocumentPipeline:
             cl_warnings=cl_warnings,
         )
 
+    @staticmethod
+    def _cv_structural_violations(content: dict) -> int:
+        """
+        Count structural gate violations on a CV content dict: unbacked
+        competencies + forbidden verbs + word-count overflows. Used to compare
+        raw vs humanized — the humanizer rewrites bullets and can strip a
+        backing phrase or a role-appropriate verb, so the gates that passed on
+        the raw content must be re-checked on the humanized output.
+        """
+        return (
+            len(_check_unbacked_competencies(content))
+            + len(_check_forbidden_verbs(content))
+            + len(_check_cv_word_counts(content))
+        )
+
     async def _humanize_and_pick_best_cv(self, job_id: str, jd: str, raw_content: dict):
         """
-        Humanize, pick version with free banned-word check, then run ONE ATS call.
-        Any ATS degradation from humanizing will be caught by the retry loop.
+        Humanize, then keep whichever of raw/humanized is cleaner on the free
+        checks (banned words + structural gates), then run ONE ATS call.
+        Any ATS degradation from humanizing is caught by the retry loop.
         """
         if not config.HUMANIZE_ENABLED:
             logger.info("CV humanizer skipped (disabled via /humanize)")
@@ -846,9 +1088,22 @@ class DocumentPipeline:
 
         raw_banned = check_banned_words(cv_dict_to_text(raw_content))
         hum_banned = check_banned_words(cv_dict_to_text(humanized))
+        # The humanizer can silently break a gate the raw content passed — most
+        # importantly it can reword a bullet so a Core Competency loses its
+        # backing phrase. Re-check the structural gates on both and prefer the
+        # cleaner one; ties go to the humanized (more natural) version.
+        raw_struct = self._cv_structural_violations(raw_content)
+        hum_struct = self._cv_structural_violations(humanized)
+
         if len(hum_banned) > len(raw_banned):
             logger.warning(
                 f"CV humanizer introduced banned words ({hum_banned}) — falling back to raw"
+            )
+            chosen = raw_content
+        elif hum_struct > raw_struct:
+            logger.warning(
+                f"CV humanizer broke {hum_struct - raw_struct} structural gate(s) "
+                "(unbacked competency / verb / word-count) — falling back to raw"
             )
             chosen = raw_content
         else:
@@ -860,10 +1115,18 @@ class DocumentPipeline:
     async def _cv_one_candidate(self, job, jd: str, feedback: str, jd_keywords: list | None, jd_focus: str = ""):
         """
         Produce one CV candidate:
-          generate → word-count check → feasibility check → humanize-or-keep eval.
-        Return ('ok', content, eval) when an evaluated result exists, or
-               ('pre_fail', feedback_for_next_attempt, None) on word/feasibility veto, or
-               ('error', exception, None) when generation itself raised.
+          generate → word-count / competency / verb / feasibility checks → humanize-or-keep eval.
+
+        Returns:
+          ('ok', content, eval)            — passed every gate; has an evaluation.
+          ('pre_fail', payload, None)      — a gate vetoed it. payload is a dict:
+              {"feedback": str, "content": dict, "hard": bool}.
+              `content` is retained so `_cv_loop` can ship the least-bad candidate
+              as a last resort instead of crashing. `hard=True` marks a violation
+              that must NEVER ship (a factual timeline lie); soft failures
+              (word-count overflow, unbacked competency, seniority verb) are
+              shippable as a last resort.
+          ('error', exception, None)       — generation itself raised.
         """
         try:
             content = await self.generator.generate_cv_content(
@@ -885,23 +1148,61 @@ class DocumentPipeline:
                 + "\n".join(f"  • {v}" for v in over_limit)
                 + "\nTrim each section to its cap — the CV must fit in 2 pages."
             )
-            return ("pre_fail", msg, None)
+            return ("pre_fail", {"feedback": msg, "content": content, "hard": False}, None)
 
-        era_bad = _check_accenture_feasibility(content)
+        unbacked = _check_unbacked_competencies(content)
+        if unbacked:
+            for u in unbacked:
+                logger.warning(f"CV unbacked competency: {u!r}")
+            msg = (
+                f"CORE COMPETENCIES BACKING FAILURE: {len(unbacked)} competenc"
+                f"{'y' if len(unbacked) == 1 else 'ies'} listed with no supporting phrase in any bullet, "
+                "project description, or summary. A recruiter grep-searching for these terms would find "
+                "them in Competencies and then find no story behind them, instantly discrediting the CV.\n"
+                + "\n".join(f"  • {u!r}" for u in unbacked)
+                + "\n\nFix EACH one by either:\n"
+                "  (a) removing it from Core Competencies entirely (safe if the JD only mentions it once), OR\n"
+                "  (b) adding a plausible exposure phrase to at least one bullet that includes the term verbatim\n"
+                "      (e.g. 'contributed to AI usage guidelines for internal team' backs 'AI Governance';\n"
+                "      'supported Confluence-documented sprint deliverables' backs 'Confluence')."
+            )
+            return ("pre_fail", {"feedback": msg, "content": content, "hard": False}, None)
+
+        verb_bad = _check_forbidden_verbs(content)
+        if verb_bad:
+            for v in verb_bad:
+                logger.warning(f"CV seniority-verb violation: {v}")
+            msg = (
+                f"SENIORITY ERROR: {len(verb_bad)} bullet(s) open with a verb the role level does not "
+                "support. A New Associate did not 'own', 'lead', 'manage', 'architect', or 'mentor' — "
+                "a recruiter familiar with these job ladders will spot the inflation instantly.\n"
+                + "\n".join(f"  • {v}" for v in verb_bad)
+                + "\n\nFix: rewrite each flagged bullet to open with a level-appropriate verb "
+                "(supported, contributed to, assisted with, analysed, built, produced, prepared). "
+                "Keep the achievement and metric — only the framing changes."
+            )
+            return ("pre_fail", {"feedback": msg, "content": content, "hard": False}, None)
+
+        era_bad = _check_pregate_role_feasibility(content)
         if era_bad:
+            from ai.cv_generator import _pre_gate_employers, _post_gate_employers, _fmt_date
+            pre  = ", ".join(e.get("display_name", "?") for e in _pre_gate_employers()) or "pre-gate roles"
+            post = ", ".join(e.get("display_name", "?") for e in _post_gate_employers()) or "post-gate roles"
+            gate_pretty = _fmt_date(config.AI_TIMELINE_GATE)
+
             for b in era_bad:
                 logger.warning(f"CV feasibility violation: {b}")
             msg = (
-                f"FEASIBILITY ERROR: {len(era_bad)} Accenture bullet(s) use AI/LLM/Copilot/"
-                f"AI-Governance terms. Accenture role ran Nov 2022–Feb 2025 (pre-corporate-LLM era) — "
-                f"these claims are a timeline mismatch a recruiter will catch instantly.\n"
+                f"FEASIBILITY ERROR: {len(era_bad)} bullet(s) attribute AI/LLM/Copilot/AI-Governance terms to "
+                f"pre-gate role(s) ({pre}). Corporate LLM adoption did not happen at scale before "
+                f"{gate_pretty} — these claims are a timeline mismatch a recruiter will catch instantly.\n"
                 + "\n".join(f"  • {b}" for b in era_bad)
-                + "\n\nFix: rewrite each affected Accenture bullet WITHOUT any AI/ML/LLM/Copilot/"
-                "AI-Governance reference. Use insurance ops / Python (Pandas) / SQL / Power BI / "
-                "Excel automation / SLA monitoring / documentation / data-quality framing instead. "
-                "AI/LLM claims are permitted ONLY on Chintamani bullets (Mar 2025+)."
+                + f"\n\nFix: rewrite each affected bullet WITHOUT any AI/ML/LLM/Copilot/AI-Governance reference. "
+                f"Use the role's actual toolkit (Python/Pandas, SQL, Power BI, Excel automation, SLA monitoring, "
+                f"documentation, data quality) instead. AI/LLM claims are permitted ONLY on: {post}."
             )
-            return ("pre_fail", msg, None)
+            # HARD — a timeline lie must never ship, even as a last resort.
+            return ("pre_fail", {"feedback": msg, "content": content, "hard": True}, None)
 
         content, ev = await self._humanize_and_pick_best_cv(job.job_id, jd, content)
         return ("ok", content, ev)
@@ -914,6 +1215,7 @@ class DocumentPipeline:
         sequential (they depend on the previous attempt's feedback).
         """
         best_content, best_eval = None, None
+        softfail_content: dict | None = None   # best shippable pre-fail (last resort)
         feedback = ""
         n_first = max(1, getattr(config, "CV_BEST_OF_N", 1))
 
@@ -940,7 +1242,12 @@ class DocumentPipeline:
                     continue
                 if status == "pre_fail":
                     if pre_fail_feedback is None:
-                        pre_fail_feedback = payload
+                        pre_fail_feedback = payload["feedback"]
+                    # Retain the most recent SOFT pre-fail as a last-resort shippable
+                    # (latest attempt has benefited from the most feedback). Hard
+                    # fails — timeline lies — are never retained.
+                    if not payload["hard"]:
+                        softfail_content = payload["content"]
                     continue
                 if best_eval is None or _better_eval(ev, best_eval):
                     best_content, best_eval = payload, ev
@@ -952,6 +1259,19 @@ class DocumentPipeline:
                 if attempt == _MAX_RETRIES:
                     if best_eval is not None:
                         break  # ship the best from a prior attempt
+                    # Last resort: no candidate ever passed every gate. Rather than
+                    # crash the whole application, ship the best soft-failed CV
+                    # (a cosmetic word-count / coverage issue remains, but the
+                    # content is real and defensible). Timeline lies never reach here.
+                    if softfail_content is not None:
+                        logger.warning(
+                            "CV: no candidate cleared every gate after retries — shipping the "
+                            "best soft-failed candidate (a minor cosmetic/coverage issue remains)."
+                        )
+                        best_content, best_eval = await self._humanize_and_pick_best_cv(
+                            job.job_id, jd, softfail_content
+                        )
+                        break
                     if last_error is not None:
                         raise last_error
                     raise RuntimeError("CV generation produced no evaluable candidates")
@@ -1063,6 +1383,7 @@ class DocumentPipeline:
 
         First attempt runs CL_BEST_OF_N candidates in parallel; retries are
         sequential (they depend on the previous attempt's feedback).
+        Retries fire on ATS shortfall or banned-word hits.
         """
         best_content, best_eval = None, None
         feedback = ""
@@ -1117,14 +1438,14 @@ class DocumentPipeline:
                 continue
 
             passes = (
-                best_eval.ats_score >= config.ATS_SCORE_TARGET
+                best_eval.ats_score >= config.CL_ATS_SCORE_TARGET
                 and not best_eval.banned_words_found
             )
             if passes or attempt == _MAX_RETRIES:
                 break
 
             logger.warning(
-                f"CL ATS={attempt_best_eval.ats_score} < {config.ATS_SCORE_TARGET} "
+                f"CL ATS={attempt_best_eval.ats_score} < {config.CL_ATS_SCORE_TARGET} "
                 f"(banned={attempt_best_eval.banned_words_found or 'none'}) — "
                 f"retry {attempt + 1}/{_MAX_RETRIES} for {job.title} @ {job.company}"
             )

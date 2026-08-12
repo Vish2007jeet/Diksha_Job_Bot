@@ -29,8 +29,26 @@ _name_slug = config.USER_NAME_SHORT.replace(" ", "_")
 CV_FILENAME = f"CV_{_name_slug}"
 CL_FILENAME = f"CL_{_name_slug}"
 
-_MAX_RETRIES        = 1     # up to 1 retry = 2 total attempts per document
+# One shot per document. Retries are OFF by explicit user decision: a failed
+# gate no longer triggers a second paid generation. The document ships as
+# written, its remaining issues are surfaced to Telegram as warnings, and the
+# user decides whether to press Regenerate. Set to 1 to restore auto-retry.
+_MAX_RETRIES        = 0
 _FEEDBACK_MAX_CHARS = 1500  # cap feedback injected into retry prompts to avoid context overflow
+
+def _retry_reason(ev, ats_target: int) -> str:
+    """
+    Describe why a document is being retried — only the gates that actually
+    failed. Previously the log hardcoded "ATS=x < target" even when the trigger
+    was a banned word, producing nonsense lines like "ATS=73 < 70".
+    """
+    reasons = []
+    if ev.ats_score < ats_target:
+        reasons.append(f"ATS={ev.ats_score} < {ats_target}")
+    if ev.banned_words_found:
+        reasons.append(f"banned={ev.banned_words_found}")
+    return " + ".join(reasons) if reasons else "gate failure"
+
 
 def _short_model_name(model_id: str) -> str:
     """
@@ -190,8 +208,9 @@ def _build_expense_report(job, tracker) -> str:
 _CV_WORD_LIMITS = {
     "summary": 65,
 }
-_BULLET_DESC_WORD_LIMIT = 30
+_BULLET_DESC_WORD_LIMIT = 34
 _PROJECT_DESC_WORD_LIMIT = 20
+_PROJECT_BULLET_WORD_LIMIT = 28
 
 # Words a section may exceed its cap by before it counts as a real overflow.
 _SUMMARY_WC_TOLERANCE = 8
@@ -239,130 +258,18 @@ def _check_cv_word_counts(cv_content: dict) -> List[str]:
                 f"{field}: {count} words — EXCEEDS {limit}-word cap by {count - limit} word(s)."
             )
 
+    # Project bullets — 3 per project, now generated per JD (previously fixed
+    # boilerplate in the template). Same 2-page guard as the role bullets.
+    for field in ("project1_bullets", "project2_bullets"):
+        for i, bullet in enumerate(cv_content.get(field, []), 1):
+            count = _wc(bullet)
+            if count > _PROJECT_BULLET_WORD_LIMIT + _PROJECT_WC_TOLERANCE:
+                violations.append(
+                    f"{field}[{i}]: {count} words — EXCEEDS {_PROJECT_BULLET_WORD_LIMIT}-word cap by "
+                    f"{count - _PROJECT_BULLET_WORD_LIMIT} word(s). Cut words, keep the fact."
+                )
+
     return violations
-
-
-# ── Competencies German sanitiser ─────────────────────────────
-# Safety net: strip any German words that slipped through the generation prompt.
-# Catches German characters (ü ö ä ß Ü Ö Ä) — guaranteed non-English.
-
-_GERMAN_CHARS_RE  = re.compile(r'[üöäßÜÖÄ]')
-_GERMAN_PAREN_RE  = re.compile(r'\s*\([^)]*[üöäßÜÖÄ][^)]*\)')
-
-
-def _sanitize_competencies(text: str) -> str:
-    """
-    Remove German text from the competencies string:
-      1. Strip parentheticals that contain German chars
-         e.g. "Data Quality Assurance (Qualitätssicherung der Daten)"
-              → "Data Quality Assurance"
-      2. Drop any whole item that still contains German chars after step 1.
-    Preserves bold markers (**...**) and the separator style (· or | or ,).
-    """
-    if not text:
-        return text
-
-    # Step 1 — strip German parentheticals inline
-    text = _GERMAN_PAREN_RE.sub('', text)
-
-    # Step 2 — split, filter, rejoin
-    if ' · ' in text:
-        sep = ' · '
-    elif ' | ' in text:
-        sep = ' | '
-    else:
-        sep = ', '
-
-    cleaned = []
-    for item in text.split(sep):
-        item = item.strip()
-        if not item:
-            continue
-        plain = re.sub(r'\*\*', '', item)          # strip bold markers for the check
-        if _GERMAN_CHARS_RE.search(plain):
-            logger.info(f"[Competencies] Stripped German item: {plain[:60]!r}")
-            continue
-        cleaned.append(item)
-
-    return sep.join(cleaned)
-
-
-# ── Unbacked Core Competency validator ────────────────────────
-# Every Core Competencies item that is not a Primary Tool must appear (as a
-# substring, case-insensitive) in at least one bullet, project description, or
-# the summary. Catches recruit-killing stretch claims like "AI Governance"
-# listed alone with no bullet to back it up.
-
-def _competency_items(text: str) -> List[str]:
-    """Split a Core Competencies string on `·`/`|`/`,` and strip bold markers."""
-    if not text:
-        return []
-    for sep in (" · ", " | "):
-        if sep in text:
-            parts = text.split(sep)
-            break
-    else:
-        parts = text.split(",")
-    items = []
-    for p in parts:
-        clean = re.sub(r"\*\*", "", p).strip()
-        if clean:
-            items.append(clean)
-    return items
-
-
-# High-risk competency patterns — these are recruiter-grep tripwires. If they
-# appear in Core Competencies but nowhere in the bullets/projects/summary, a
-# reader will spot the fluff instantly. Standard methodologies (Variance
-# Analysis, KPI Dashboards, Financial Reporting) are NOT here — recruiters
-# accept them as tool-adjacent skills without a bullet.
-_HIGH_RISK_COMPETENCY_RE = re.compile(
-    r"\b("
-    r"AI\s+Governance|AI\s+Awareness|Machine\s+Learning(?:\s+Awareness)?|"
-    r"ML\s+Ops|MLOps|Generative\s+AI|GenAI|Prompt\s+Engineering|"
-    r"LLM(?:s)?|RAG|Vector\s+(?:Databases?|Stores?)|Agentic|"
-    r"AI\s+Literacy|AI\s+Ethics|AI\s+Compliance"
-    r")\b",
-    re.IGNORECASE,
-)
-
-
-def _check_unbacked_competencies(cv_content: dict) -> List[str]:
-    """
-    Return Core Competencies items that (a) match the high-risk pattern OR are
-    an adjacent tool from config.ADJACENT_TOOL_EXAMPLES, AND (b) do not appear
-    (as a substring, case-insensitive) in any bullet, project description, or
-    the summary.
-
-    Standard methodologies pass unchecked — recruiters accept 'Financial
-    Reporting' or 'Variance Analysis' in Competencies without a bullet. The
-    catch is for AI/ML-adjacent claims and adjacent tools that a Group AI
-    Office recruiter would grep-search and find no story behind.
-    """
-    competencies = _competency_items(cv_content.get("competencies", ""))
-    if not competencies:
-        return []
-
-    adjacent_lower = {t.lower() for t in (config.ADJACENT_TOOL_EXAMPLES or [])}
-    # Corpus a competency must appear in.
-    corpus_parts = [cv_content.get("summary", ""),
-                    cv_content.get("project1_desc", ""),
-                    cv_content.get("project2_desc", "")]
-    for role_key in ("chintamani", "accenture"):
-        corpus_parts.extend(cv_content.get(role_key, []))
-    corpus = " ".join(re.sub(r"\*\*", "", p or "") for p in corpus_parts).lower()
-
-    unbacked: List[str] = []
-    for item in competencies:
-        item_lower = item.lower()
-        head = item_lower.split("(")[0].strip()
-        is_risky = bool(_HIGH_RISK_COMPETENCY_RE.search(item))
-        is_adjacent = head in adjacent_lower
-        if not (is_risky or is_adjacent):
-            continue
-        if item_lower not in corpus:
-            unbacked.append(item)
-    return unbacked
 
 
 # ── Seniority forbidden-verb validator ────────────────────────
@@ -538,6 +445,57 @@ def _check_para1_opening(cl_data: dict) -> str:
     return ""
 
 
+# ── CL closing-paragraph content bans ─────────────────────────
+# Three things the closing must never do, per explicit user instruction:
+#   1. Raise relocation/commuting — location is settled; mentioning it invites doubt.
+#   2. Request a meeting/call or propose a demo — the reader decides the next step.
+#   3. Narrate language progress ("daily exposure") — reads as apologising for A2.
+# The prompt states all three, but the model has slipped before, so these are
+# enforced in Python too. Scanned across the whole letter, not just para 5.
+
+_CL_RELOCATION_RE = re.compile(
+    r"\b(relocat\w*|reloca\w*|willing\s+to\s+move|happy\s+to\s+move|open\s+to\s+moving|"
+    r"can\s+move\s+to|commut\w*|willing\s+to\s+travel)\b",
+    re.IGNORECASE,
+)
+
+_CL_MEETING_REQUEST_RE = re.compile(
+    r"(\b\d+[-\s]?minute\b|\bbrief\s+(?:call|chat|conversation)\b|"
+    r"\bwould\s+welcome\s+a\s+(?:call|chat|meeting|conversation)\b|"
+    r"\bwalk\s+(?:you|your\s+team)\s+through\b|\bhappy\s+to\s+(?:walk|demonstrate|present|show)\b|"
+    r"\b(?:demonstrate|present)\s+what\s+I\s+can\s+deliver\b|"
+    r"\bschedule\s+a\s+(?:call|meeting|time)\b|\bset\s+up\s+a\s+(?:call|meeting)\b)",
+    re.IGNORECASE,
+)
+
+_CL_LANGUAGE_NARRATIVE_RE = re.compile(
+    r"\b(daily\s+exposure|immersion|immersing|accelerating\s+my\s+progress|"
+    r"actively\s+(?:progressing|improving|learning)|improving\s+steadily|"
+    r"steadily\s+improving|on\s+track\s+to\s+reach\s+B\d)\b",
+    re.IGNORECASE,
+)
+
+
+def _check_cl_closing_bans(cl_data: dict) -> List[str]:
+    """Return issues for banned closing content (empty = clean)."""
+    text = "\n".join((cl_data.get(f"para{i}") or "") for i in range(1, 6))
+    if not text.strip():
+        return []
+    issues: List[str] = []
+    for label, pattern, fix in (
+        ("relocation/commuting", _CL_RELOCATION_RE,
+         "Delete the sentence entirely. Never mention relocation, moving, or commuting."),
+        ("meeting/call request", _CL_MEETING_REQUEST_RE,
+         "Delete it. Never request a call, meeting, or the reader's time, and never offer a demo."),
+        ("language-progress narrative", _CL_LANGUAGE_NARRATIVE_RE,
+         "State the German level plainly (e.g. 'German at A2') with no progress story."),
+    ):
+        m = pattern.search(text)
+        if m:
+            issues.append(f"CL contains banned {label}: {m.group(0)!r} — {fix}")
+    return issues
+
+
 def _better_eval(candidate, current_best) -> bool:
     """
     Ranking for retry-loop 'keep best so far':
@@ -661,16 +619,16 @@ THIS role: S1 = anchor to her strongest match point; S2 = the specific metric th
 proves it; S3 = bridge to what she will contribute in THIS role>",
   "bullet_strategy": {{
     "chintamani": [
-      "<Bullet 1: [theme] | [exact angle to take] | [metric from her profile to use if applicable]>",
-      "<Bullet 2: ...>",
+      "<Bullet 1 = HIGHEST RELEVANCE to this JD: [theme] | [exact angle to take] | [metric from her profile to use if applicable]>",
+      "<Bullet 2: next most relevant ...>",
       "<Bullet 3: ...>",
-      "<Bullet 4: ...>"
+      "<Bullet 4: least central to this JD ...>"
     ],
     "accenture": [
-      "<Bullet 1: [theme] | [exact angle to take] | [metric from her profile to use if applicable]>",
-      "<Bullet 2: ...>",
+      "<Bullet 1 = HIGHEST RELEVANCE to this JD: [theme] | [exact angle to take] | [metric from her profile to use if applicable]>",
+      "<Bullet 2: next most relevant ...>",
       "<Bullet 3: ...>",
-      "<Bullet 4: ...>"
+      "<Bullet 4: least central to this JD ...>"
     ]
   }},
   "cl_opening_hook": "<The single most powerful opening moment for Para 1 of the cover \
@@ -691,6 +649,17 @@ insurance operations, SLA monitoring, KPI dashboards, data validation, stakehold
 - Do NOT repeat the same theme across both roles.
 - Distribute JD requirements intelligently: put data-engineering themes on Accenture, \
 cost/governance themes on Chintamani, BI themes on whichever role fits better.
+- RANK, do not just list. Within each role the 4 briefs MUST be ordered by relevance to \
+THIS JD — bullet 1 is the strongest match to the JD's core requirement, bullet 4 the \
+least central. A recruiter reads the first bullet of each role hardest, so this ordering \
+is a real decision, not formatting.
+- PICK THE RIGHT FACET of each experience, don't default to a generic description. The \
+same underlying work supports several honest angles: her SAP FI/CO spend analysis is a \
+COST CONTROLLING story for a Controlling JD, a SUPPLIER GOVERNANCE story for a Procurement \
+JD, and a DASHBOARD DELIVERY story for a BI JD. State in the brief which facet to \
+foreground for THIS JD. Facts (tools, dates, metrics, scope) are fixed; the angle adapts.
+- Two different JDs must produce two visibly different briefs — if your brief would read \
+the same for any analytics role, it is too generic. Be specific to this posting.
 """
 
 _HAIKU_MODEL  = "claude-haiku-4-5"
@@ -791,8 +760,21 @@ async def _extract_jd_keywords(jd: str, tracker=None, job_id: str = "") -> tuple
     if not jd.strip():
         return [], ""
 
+    # The strategist plans WHICH evidence to surface, so it needs the same real
+    # work inventory the CV writer gets — planning a selection against a bare
+    # skeleton (titles + tools) is what produced same-y briefs across JDs.
+    _inventory = config.CV_BULLETS_TEXT.strip()
+    _profile_block = config.CV_PROFILE_TEXT[:3000]
+    if _inventory:
+        _profile_block += (
+            "\n\nHER REAL WORK — the evidence you are selecting from (all verified, all\n"
+            "defensible). There is more here than 8 bullet slots can hold: choose what fits\n"
+            "THIS JD, and say in each brief which item and which facet to use.\n"
+            f"{_inventory[:2500]}"
+        )
+
     prompt = _JD_DEEP_ANALYSIS_PROMPT.format(
-        profile=config.CV_PROFILE_TEXT[:3000],
+        profile=_profile_block,
         jd=jd[:4000],
     )
 
@@ -1019,6 +1001,22 @@ class DocumentPipeline:
         else:
             logger.info(f"CL quality check passed for {job.title} @ {job.company}")
 
+        # With auto-retry disabled, whatever the single generation produced is what
+        # ships. Re-run the free gates on the FINAL content so any remaining issue
+        # reaches the user as a Regenerate prompt instead of dying in the log.
+        cv_warnings: List[str] = []
+        cv_warnings += _check_cv_word_counts(cv_content)
+        cv_warnings += _check_forbidden_verbs(cv_content)
+        _cv_ats = int(cv_content.get("ats_score", 0))
+        if _cv_ats and _cv_ats < config.ATS_SCORE_TARGET:
+            cv_warnings.append(f"ATS {_cv_ats} is below the {config.ATS_SCORE_TARGET} target")
+        for _role, _lo, _hi in (("chintamani", 4, 5), ("accenture", 4, 5)):
+            _n = len(cv_content.get(_role, []))
+            if _n and not (_lo <= _n <= _hi):
+                cv_warnings.append(f"{_role}: {_n} bullets (expected {_lo}-{_hi})")
+        if cv_warnings:
+            logger.warning(f"CV quality issues for {job.title} @ {job.company}: {cv_warnings}")
+
         # Step 2: Apply to templates
         suffix = f"{company_safe}_{role_type}_{position_kw}"
         cv_docx = out_dir / f"{CV_FILENAME}_{suffix}.docx"
@@ -1056,20 +1054,20 @@ class DocumentPipeline:
             banned_words_found=banned,
             generation_expense=expense,
             cl_warnings=cl_warnings,
+            cv_warnings=cv_warnings,
         )
 
     @staticmethod
     def _cv_structural_violations(content: dict) -> int:
         """
-        Count structural gate violations on a CV content dict: unbacked
-        competencies + forbidden verbs + word-count overflows. Used to compare
-        raw vs humanized — the humanizer rewrites bullets and can strip a
-        backing phrase or a role-appropriate verb, so the gates that passed on
-        the raw content must be re-checked on the humanized output.
+        Count structural gate violations on a CV content dict: forbidden verbs
+        + word-count overflows. Used to compare raw vs humanized — the humanizer
+        rewrites bullets and can strip a role-appropriate verb or push a section
+        over its cap, so the gates that passed on the raw content must be
+        re-checked on the humanized output.
         """
         return (
-            len(_check_unbacked_competencies(content))
-            + len(_check_forbidden_verbs(content))
+            len(_check_forbidden_verbs(content))
             + len(_check_cv_word_counts(content))
         )
 
@@ -1103,7 +1101,7 @@ class DocumentPipeline:
         elif hum_struct > raw_struct:
             logger.warning(
                 f"CV humanizer broke {hum_struct - raw_struct} structural gate(s) "
-                "(unbacked competency / verb / word-count) — falling back to raw"
+                "(forbidden verb / word-count) — falling back to raw"
             )
             chosen = raw_content
         else:
@@ -1115,7 +1113,7 @@ class DocumentPipeline:
     async def _cv_one_candidate(self, job, jd: str, feedback: str, jd_keywords: list | None, jd_focus: str = ""):
         """
         Produce one CV candidate:
-          generate → word-count / competency / verb / feasibility checks → humanize-or-keep eval.
+          generate → word-count / verb / feasibility checks → humanize-or-keep eval.
 
         Returns:
           ('ok', content, eval)            — passed every gate; has an evaluation.
@@ -1124,7 +1122,7 @@ class DocumentPipeline:
               `content` is retained so `_cv_loop` can ship the least-bad candidate
               as a last resort instead of crashing. `hard=True` marks a violation
               that must NEVER ship (a factual timeline lie); soft failures
-              (word-count overflow, unbacked competency, seniority verb) are
+              (word-count overflow, seniority verb) are
               shippable as a last resort.
           ('error', exception, None)       — generation itself raised.
         """
@@ -1135,10 +1133,6 @@ class DocumentPipeline:
         except Exception as exc:
             return ("error", exc, None)
 
-        # Strip any German that slipped through the generation prompt
-        if content.get("competencies"):
-            content["competencies"] = _sanitize_competencies(content["competencies"])
-
         over_limit = _check_cv_word_counts(content)
         if over_limit:
             for v in over_limit:
@@ -1147,24 +1141,6 @@ class DocumentPipeline:
                 f"2-PAGE OVERFLOW: {len(over_limit)} section(s) exceed their word limits.\n"
                 + "\n".join(f"  • {v}" for v in over_limit)
                 + "\nTrim each section to its cap — the CV must fit in 2 pages."
-            )
-            return ("pre_fail", {"feedback": msg, "content": content, "hard": False}, None)
-
-        unbacked = _check_unbacked_competencies(content)
-        if unbacked:
-            for u in unbacked:
-                logger.warning(f"CV unbacked competency: {u!r}")
-            msg = (
-                f"CORE COMPETENCIES BACKING FAILURE: {len(unbacked)} competenc"
-                f"{'y' if len(unbacked) == 1 else 'ies'} listed with no supporting phrase in any bullet, "
-                "project description, or summary. A recruiter grep-searching for these terms would find "
-                "them in Competencies and then find no story behind them, instantly discrediting the CV.\n"
-                + "\n".join(f"  • {u!r}" for u in unbacked)
-                + "\n\nFix EACH one by either:\n"
-                "  (a) removing it from Core Competencies entirely (safe if the JD only mentions it once), OR\n"
-                "  (b) adding a plausible exposure phrase to at least one bullet that includes the term verbatim\n"
-                "      (e.g. 'contributed to AI usage guidelines for internal team' backs 'AI Governance';\n"
-                "      'supported Confluence-documented sprint deliverables' backs 'Confluence')."
             )
             return ("pre_fail", {"feedback": msg, "content": content, "hard": False}, None)
 
@@ -1290,9 +1266,9 @@ class DocumentPipeline:
                 break
 
             logger.warning(
-                f"CV ATS={attempt_best_eval.ats_score} < {config.ATS_SCORE_TARGET} "
-                f"(banned={attempt_best_eval.banned_words_found or 'none'}) — "
-                f"retry {attempt + 1}/{_MAX_RETRIES} for {job.title} @ {job.company}"
+                f"CV retry {attempt + 1}/{_MAX_RETRIES} — "
+                f"{_retry_reason(attempt_best_eval, config.ATS_SCORE_TARGET)} "
+                f"for {job.title} @ {job.company}"
             )
             feedback = attempt_best_eval.feedback_block()[:_FEEDBACK_MAX_CHARS]
 
@@ -1309,6 +1285,7 @@ class DocumentPipeline:
         opener = _check_para1_opening(content)
         if opener:
             issues.append(opener)
+        issues.extend(_check_cl_closing_bans(content))
         return issues
 
     async def _humanize_and_pick_best_cl(self, job_id: str, jd: str, raw_content: dict):
@@ -1445,9 +1422,9 @@ class DocumentPipeline:
                 break
 
             logger.warning(
-                f"CL ATS={attempt_best_eval.ats_score} < {config.CL_ATS_SCORE_TARGET} "
-                f"(banned={attempt_best_eval.banned_words_found or 'none'}) — "
-                f"retry {attempt + 1}/{_MAX_RETRIES} for {job.title} @ {job.company}"
+                f"CL retry {attempt + 1}/{_MAX_RETRIES} — "
+                f"{_retry_reason(attempt_best_eval, config.CL_ATS_SCORE_TARGET)} "
+                f"for {job.title} @ {job.company}"
             )
             feedback = attempt_best_eval.feedback_block()[:_FEEDBACK_MAX_CHARS]
 

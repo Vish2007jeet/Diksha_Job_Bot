@@ -61,3 +61,6 @@ class ApplicationResult:
     banned_words_found: List[str] = field(default_factory=list)
     generation_expense: str = ""
     cl_warnings: List[str] = field(default_factory=list)
+    # Gates the shipped CV did not clear. With auto-retry off these are no longer
+    # fixed silently, so they are surfaced to the user as the signal to regenerate.
+    cv_warnings: List[str] = field(default_factory=list)

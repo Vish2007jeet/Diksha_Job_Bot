@@ -5,8 +5,9 @@ CV format (current):
   - 4 bullets per role (chintamani + accenture). ONE natural sentence per
     bullet, action-verb led, no "Label:" prefix, no bold opener label.
   - JD-driven ATS keywords wrapped inline with **double asterisks** for BOLD.
-  - Summary ≤65 words, bullets ≤30 words, project descriptions ≤20 words.
-  - Core Competencies packs every JD tool/skill; every tool bolded inline.
+  - Summary ≤65 words, role bullets ≤34, project bullets ≤28, objectives ≤20.
+  - No Core Competencies section — the 8 role bullets are the primary ATS
+    keyword layer; every keyword must sit inside a real sentence.
 
 CL format (current):
   - 5 paragraphs. Para 1 opens with a story-first anecdote (never "I am
@@ -88,8 +89,10 @@ def reset_prompt(key: str | None = None) -> None:
         elif _PROMPTS_FILE.exists():
             _PROMPTS_FILE.unlink()
 
-# ── ATS banlist — banned Core-Competencies terms that must be filtered from
-# the mandatory-ATS keyword list before injection into the CV prompt.
+# ── ATS banlist — soft-skill/perk terms that must be filtered from the
+# mandatory-ATS keyword list before injection into the CV prompt. With the Core
+# Competencies section removed these have nowhere to hide at all, so forcing
+# them verbatim would push the model to bend a real bullet around fluff.
 _ATS_BANLIST: frozenset[str] = frozenset({
     "hybrid work", "remote work", "flexible hours", "work-life balance",
     "office presence", "on-site", "english language proficiency",
@@ -98,12 +101,14 @@ _ATS_BANLIST: frozenset[str] = frozenset({
     "fast learner", "can-do attitude", "growth mindset",
 })
 
-# AI/ML-family ATS terms. These get filtered from the MANDATORY keyword
-# injection because the candidate cannot honestly back them (no real AI/ML
-# experience). If we force them in verbatim, the model dumps them into Core
-# Competencies where they sit unbacked and get an AI-team recruiter to reject
-# on sight. They may still appear IF the model finds a genuine exposure phrase
-# — they are just never *mandatory*. This keeps the CV honest for AI-heavy JDs.
+# AI/ML-family ATS terms. These are NO LONGER dropped from the mandatory
+# keyword list — the user's directive is full JD keyword coverage. They are
+# still flagged so the prompt can demand honest, exposure-level framing for
+# them specifically: the candidate has no AI/ML delivery experience, so these
+# must attach to real adjacent work (data fluency, documentation, reporting,
+# governance/QA process) rather than becoming an invented AI story. The Core
+# Competencies section is gone, so there is no bare-list escape hatch — a
+# keyword now has to earn a sentence, which is what keeps coverage defensible.
 _ATS_AI_FAMILY_RE = re.compile(
     r"\b("
     r"AI\s+Governance|AI\s+Literacy|AI\s+Ethics|AI\s+Compliance|AI\s+Strategy|"
@@ -116,23 +121,94 @@ _ATS_AI_FAMILY_RE = re.compile(
 )
 
 
+# ── ATS keyword weighting ──────────────────────────────────────
+# Mirrors the deduction table the ATS auditor in ai/evaluator.py actually
+# applies: HARD (named tools/software/languages/certs) = 8 points, DOMAIN
+# (methodologies, domain skills, processes) = 5, SOFT (communication, teamwork,
+# cultural fit) = 2. The generator has a finite word budget, so keywords must be
+# spent in value order — one missed tool costs as much as four missed soft
+# skills. Injecting them unranked (the previous behaviour) meant the model could
+# burn its last words on a 2-point term and drop an 8-point one.
+
+_SOFT_SKILL_RE = re.compile(
+    r"\b(communication|teamwork|team\s*player|collaborat\w*|interpersonal|"
+    r"motivat\w*|proactiv\w*|independent\w*|reliab\w*|flexib\w*|adaptab\w*|"
+    r"willingness|eager\w*|curious|curiosity|attention\s+to\s+detail|"
+    r"organis\w*|organiz\w*|time\s+management|problem[-\s]solving|"
+    r"analytical\s+(?:mindset|thinking)|work\s+ethic|hands[-\s]on|"
+    r"fluent|fluency|native|language\s+skills|english|german)\b",
+    re.IGNORECASE,
+)
+
+
+def _tool_vocabulary() -> set[str]:
+    vocab = {t.strip().lower() for t in (config.PRIMARY_TOOLS or []) if t.strip()}
+    vocab |= {t.strip().lower() for t in (config.ADJACENT_TOOL_EXAMPLES or []) if t.strip()}
+    return vocab
+
+
+def classify_ats_keyword(kw: str) -> str:
+    """Return 'HARD', 'DOMAIN', or 'SOFT' for one JD keyword."""
+    k = kw.strip()
+    kl = k.lower()
+    vocab = _tool_vocabulary()
+    if kl in vocab or any(v in kl for v in vocab if len(v) > 3):
+        return "HARD"
+    if _SOFT_SKILL_RE.search(k):
+        return "SOFT"
+    # Product-style names (SAP FI/CO, MS365, Power BI, S/4HANA) read as tools.
+    if re.search(r"[A-Z]{2,}|\d|/", k):
+        return "HARD"
+    return "DOMAIN"
+
+
+_ATS_WEIGHT = {"HARD": 8, "DOMAIN": 5, "SOFT": 2}
+
+
+def _render_ranked_keywords(keywords: list[str]) -> str:
+    """Render the mandatory list grouped by ATS value, most expensive first."""
+    if not keywords:
+        return ""
+    ranked = rank_ats_keywords(keywords)
+    out: list[str] = []
+    for cls, label in (
+        ("HARD", "HARD — named tools/software/languages. 8 POINTS EACH. Cover these first, verbatim"),
+        ("DOMAIN", "DOMAIN — methodologies, domain skills, processes. 5 points each"),
+        ("SOFT", "SOFT — communication/teamwork/fit. 2 points each. Only after the above are covered"),
+    ):
+        items = [k for k, c, _ in ranked if c == cls]
+        if items:
+            out.append(f"  [{label}]")
+            out += [f"    • {k}" for k in items]
+    return "\n".join(out) + "\n"
+
+
+def rank_ats_keywords(keywords: list[str]) -> list[tuple[str, str, int]]:
+    """Return [(keyword, class, points)] sorted most-valuable first."""
+    scored = [(k, classify_ats_keyword(k)) for k in keywords]
+    scored = [(k, c, _ATS_WEIGHT[c]) for k, c in scored]
+    return sorted(scored, key=lambda x: -x[2])
+
+
+def split_ai_family(keywords: list[str]) -> tuple[list[str], list[str]]:
+    """Split keywords into (ordinary, ai_family) — both stay mandatory."""
+    ordinary, ai_family = [], []
+    for k in keywords:
+        (ai_family if _ATS_AI_FAMILY_RE.search(k) else ordinary).append(k)
+    return ordinary, ai_family
+
+
 def filter_ats_banlist(keywords: list[str]) -> list[str]:
     """
-    Return `keywords` with two classes dropped (case-insensitive):
-      1. Soft-skill banlist terms (Team Player, Detail-Oriented, …).
-      2. AI/ML-family terms the candidate cannot honestly back — so they are
-         never forced verbatim into the CV. See `_ATS_AI_FAMILY_RE`.
+    Return `keywords` with ONLY soft-skill/perk noise dropped (case-insensitive):
+    Hybrid Work, Team Player, Detail-Oriented, Work-Life Balance, … — these are
+    hiring-page boilerplate, not skills, and no recruiter greps a CV for them.
+
+    Everything else — including AI/ML-family terms — is retained and mandatory.
+    Full JD keyword coverage is the requirement; `split_ai_family` marks the
+    AI/ML subset so the prompt can require exposure-level framing for it.
     """
-    out = []
-    for k in keywords:
-        if not k:
-            continue
-        if k.strip().lower() in _ATS_BANLIST:
-            continue
-        if _ATS_AI_FAMILY_RE.search(k):
-            continue
-        out.append(k)
-    return out
+    return [k for k in keywords if k and k.strip().lower() not in _ATS_BANLIST]
 
 
 # ── Config helpers — turn profile dicts into prompt-ready strings ────
@@ -230,10 +306,30 @@ def _build_feasibility_law() -> str:
         if forbidden:
             lines.append(f"    NEVER on {name}: {forbidden}.")
 
-    lines += ["", "SCOPE — realistic examples per role (do not exceed these magnitudes):"]
+    lines += [
+        "",
+        "SCOPE — MAGNITUDE CALIBRATION, not a menu of topics:",
+    ]
     for e in _employers():
         scope = "; ".join(e.get("scope_examples", []))
         lines.append(f"  • {e.get('display_name', '?')}: {scope}")
+    lines += [
+        "  These are reference points for the SIZE of her world at each employer — team sizes,",
+        "  data volumes, transaction counts, breadth of ownership. They are NOT the only things",
+        "  she did and NOT a list of the only bullets you may write.",
+        "  ✓ DO draw the substance of your bullets from the EVIDENCE INVENTORY — it carries far",
+        "    more real specifics than these few lines (concrete percentages, hours saved, record",
+        "    counts, cycle times, systems touched). Use those actual numbers.",
+        "  ✓ DO describe genuine facets of her role that are not named above, as long as the scale",
+        "    is consistent with these reference points and the work appears in the inventory.",
+        "  ✓ DO write plausible SCALE figures at this order of magnitude even when the exact count",
+        "    is not documented — how many reports, streams, stakeholders, systems or cycles she",
+        "    handled. These describe the shape of her job and she can confirm them on the spot.",
+        "  ✗ DO NOT exceed these magnitudes — no inflating a 6-category scope into 'enterprise-wide',",
+        "    a 5-analyst team into 'a department', or 50,000 records into 'millions'.",
+        "  ✗ DO NOT manufacture an IMPROVEMENT metric (percentage gain, hours saved, cost reduced).",
+        "    Those imply a measurement she performed and must come from the inventory or profile.",
+    ]
 
     if config.PRIMARY_TOOLS:
         lines += [
@@ -243,13 +339,17 @@ def _build_feasibility_law() -> str:
         ]
     if config.ADJACENT_TOOL_EXAMPLES:
         lines.append(
-            f"  ADJACENT (exposure/contribution language only, never architectural ownership): "
+            f"  ADJACENT (default to working-use language; scale claims to how central the JD makes it): "
             f"{', '.join(config.ADJACENT_TOOL_EXAMPLES)}."
         )
         lines += [
-            "  For adjacent tools use framings like: 'supported reporting workflows that fed",
-            "  into X', 'gained exposure to X during Y project', 'contributed to X-tracked",
-            "  sprint reviews'. NEVER: 'architected', 'led', 'owned end-to-end'.",
+            "  She only applies to roles she has done the work for, so when the JD CENTRES one of",
+            "  these tools, write her as a competent working user of it: 'built reports in X',",
+            "  'used X to track Y', 'worked in X day to day'. Reserve pure exposure framing",
+            "  ('supported workflows that fed into X', 'gained exposure to X') for tools the JD",
+            "  mentions only in passing.",
+            "  Still NEVER on an adjacent tool: 'architected', 'owned end-to-end', 'led the",
+            "  migration' — ownership of the platform itself is the line, not use of it.",
         ]
 
     return "\n".join(lines)
@@ -288,6 +388,91 @@ def _render_banned_words_line() -> str:
 _BANNED_WORDS_LINE = _render_banned_words_line()
 
 
+def _build_evidence_inventory() -> str:
+    """
+    The candidate's REAL, verified work, from `profile.cv_bullets` in
+    user_config.yaml.
+
+    This used to be wired only into interview prep, so CV generation ran off a
+    thin skeleton (titles + tools + a few scope examples) and had to reinvent
+    bullet content from scratch on every JD — which is why output drifted toward
+    the same handful of stories regardless of the posting. Handing the model the
+    real inventory turns each CV into a SELECTION problem (which of these ten
+    things matters for this JD, and from which angle) instead of an invention
+    problem. Returns '' when no bullets are configured.
+    """
+    if not config.CV_BULLETS_TEXT.strip():
+        return ""
+    return (
+        "━━━ EVIDENCE INVENTORY — her documented highlights ━━━\n"
+        "Everything below actually happened and is defensible in an interview. These are the\n"
+        "HIGHLIGHTS of her roles, not a complete record of three years of work — treat them as\n"
+        "source material, never as a template or as sentences to reuse.\n\n"
+        f"{config.CV_BULLETS_TEXT}\n\n"
+        "HOW TO USE IT — this is what makes each CV a rebuild rather than a reword:\n"
+        "  • SELECT. You have more evidence here than the 8 bullet slots can hold. That is the\n"
+        "    point. Choose the items that matter for THIS job description and leave the rest out.\n"
+        "    A Controlling JD and a BI JD should surface a visibly different subset.\n"
+        "  • RE-ANGLE. Each item supports several honest readings — the same SAP FI/CO spend work\n"
+        "    is cost control, supplier governance, or dashboard delivery depending on the JD.\n"
+        "    Foreground the facet this posting cares about.\n"
+        "  • RECOMBINE. Two related items may merge into one sharper bullet, and one rich item may\n"
+        "    split into two bullets when the JD leans hard on that area.\n"
+        "  • REWRITE. Never copy a line from the inventory verbatim — these are the base-CV phrasings\n"
+        "    and reusing them produces the generic CV you are here to replace. Write fresh prose\n"
+        "    aimed at this JD.\n\n"
+        "━━━ BEYOND THE HIGHLIGHTS — write the FULL job, not just the ten highlights ━━━\n"
+        "The inventory is ten highlights from THREE YEARS of full-time work. It is a small fraction\n"
+        "of what she actually did. Do not treat it as the boundary of her experience.\n"
+        "  IMPORTANT CONTEXT: the candidate only applies to roles she has genuinely done the work\n"
+        "  for. She vets every posting before it reaches you. So when this JD asks for something,\n"
+        "  the default assumption is that she HAS done it — your job is to write it convincingly,\n"
+        "  not to hunt for permission in the inventory.\n\n"
+        "  WRITE FREELY — all of this is fair game when the JD calls for it:\n"
+        "   • The everyday substance of her roles: month-end and period-close support, master-data\n"
+        "     maintenance, reconciliation and data validation, vendor and stakeholder coordination,\n"
+        "     ad-hoc management reporting, SOP and process documentation, query handling, audit\n"
+        "     support, meeting and review preparation, training colleagues on reports she built.\n"
+        "   • Functional and domain work inside her employers' business: procurement, cost control,\n"
+        "     supply chain, insurance operations, claims, SLA management, budgeting and forecasting,\n"
+        "     project and PMO support, governance and compliance reporting.\n"
+        "   • Tools the JD names that sit in or beside her stack. If the JD centres a BI, reporting,\n"
+        "     ERP, database, spreadsheet, ticketing or workflow tool, write her as a competent\n"
+        "     working user of it — she would not be applying otherwise. Reserve pure exposure\n"
+        "     language for tools genuinely peripheral to the role.\n"
+        "   • Qualitative outcomes, freely and without numbers: shortening a review cycle, removing\n"
+        "     manual rework, improving data accuracy, unblocking a stalled process, giving a team\n"
+        "     visibility it lacked. These are strong bullets. A bullet does NOT need a metric.\n"
+        "   • Her education as context: Cost & Works Accounting, Supply Chain, MSc Business\n"
+        "     Analytics in progress.\n\n"
+        "  THE TEST — apply it to every sentence:\n"
+        "    Would she read this and say 'yes, that was part of my job'? Write it. Assume yes for\n"
+        "    anything ordinary to her role, title, domain, seniority and toolset.\n"
+        "    Would she be SURPRISED — a seniority she never held, an employer she never worked for,\n"
+        "    a domain outside her roles entirely? Then it is fabrication. Do not write it.\n\n"
+        "  NUMBERS — two different kinds, treated differently:\n"
+        "   ✓ SCALE FIGURES — write these freely. Counts describing the shape of her work: how many\n"
+        "     categories, contracts, suppliers, reports, dashboards, templates, stakeholders,\n"
+        "     systems, teams, streams, review cycles, or records she handled. She knows these from\n"
+        "     doing the job and can confirm any of them on the spot. Keep every figure consistent\n"
+        "     with the SCOPE calibration above — same order of magnitude as her documented work.\n"
+        "     Prefer her documented figures where they exist; where they do not, a plausible count\n"
+        "     at the right scale is fine (e.g. 'across 5 reporting streams', 'for 3 business units',\n"
+        "     'covering 20+ weekly reports').\n"
+        "   ✗ INVENTED IMPROVEMENT METRICS — do NOT manufacture these: percentage gains, time\n"
+        "     saved, error-rate reductions, cost savings, efficiency percentages. Every one implies\n"
+        "     a measurement she personally performed, and in the interview she will be asked how it\n"
+        "     was calculated. An answer she cannot reconstruct discredits the whole CV. Use these\n"
+        "     ONLY when the exact figure appears in the profile or inventory above.\n"
+        "     Without a documented figure, state the outcome qualitatively — 'cutting the manual\n"
+        "     consolidation step out of the weekly cycle' is strong and fully defensible. A bullet\n"
+        "     does NOT need a percentage to land.\n\n"
+        "  ALSO NEVER INVENTED: named awards and formal recognition; employers, job titles, dates,\n"
+        "  and seniority level.\n"
+        "  Everything else: write it the way the JD needs to read it.\n\n"
+    )
+
+
 def _build_shared_law() -> str:
     """Feasibility Law + Banned Words — included verbatim in both CV and CL system prompts."""
     return _build_feasibility_law() + "\n\n" + _BANNED_WORDS_LINE
@@ -295,147 +480,1105 @@ def _build_shared_law() -> str:
 
 # ── System Prompts (built from user_config.yaml at import time) ───
 
-def _build_cv_system() -> str:
-    # ── Interpolated config values (built once at import) ────
-    edu_current = config.PROFILE_EDUCATION.get("current", {}) or {}
-    edu_pgdm    = config.PROFILE_EDUCATION.get("pgdm", {}) or {}
-    de_lang     = config.PROFILE_LANGUAGES.get("german", {}) or {}
-    msc_line    = (
-        f"{edu_current.get('degree', 'MSc')} at "
-        f"{edu_current.get('institution', '?')} — {edu_current.get('framing', '')}"
-    ).strip(" —")
-    msc_start   = _fmt_date(edu_current.get("start", ""))
-    pgdm_tag    = edu_pgdm.get("distance_learning_tag", "(Online / Distance Learning)")
-    pgdm_name   = edu_pgdm.get("degree", "PGDM")
-    pgdm_inst   = edu_pgdm.get("institution", "")
-    de_level    = de_lang.get("level", "A2")
-    anchors     = config.ANCHOR_METRICS[:3] or [
-        "cutting weekly reporting from 6 hours to 45 minutes",
-        "surfacing a 12% procurement deviation finance had missed for two quarters",
-        "processing 50,000+ insurance records to cut case resolution time by 18%",
-    ]
-    anchor_block = "\n".join(f"        e.g. '{a}'" for a in anchors)
-    latest_role_start = _fmt_date(_employers()[-1].get("start", "")) if _employers() else "?"
+_CV_MASTER_PROMPT = """\nMASTER PROMPT — CV RECONSTRUCTION & JD TAILORING
 
+You are an expert CV/resume strategist specializing in ATS-optimized, human-written professional resumes.
+
+Your task is to create a highly targeted CV for the candidate based on the target Job Description (JD).
+
+============================================================
+1. MASTER RECONSTRUCTION PRINCIPLE
+============================================================
+
+DO NOT use the candidate's previous CV as the boundary of her experience.
+
+The previous CV documents examples of her experience, but it is NOT an exhaustive inventory.
+
+For every target JD, reconstruct the strongest relevant CV FROM SCRATCH using:
+
+- the candidate's genuine professional domains;
+- actual job titles and seniority;
+- actual employers and business environments;
+- genuine responsibilities naturally belonging to those roles;
+- verified tools and technologies;
+- education;
+- genuine projects;
+- verified achievements;
+- the target JD.
+
+Reconstruct relevant responsibilities, workflows, analyses, processes, reporting activities, project activities, tools and business outcomes that genuinely belong to the candidate's actual roles, even when they were not explicitly documented in the previous CV.
+
+DO NOT simply rewrite or lightly edit the old CV.
+
+DO NOT ask:
+"Which existing CV bullet proves this?"
+
+Instead ask:
+"What part of the candidate's genuine professional experience corresponds most strongly to what this employer needs?"
+
+Then reconstruct and express that experience naturally in the language of the JD.
+
+IMPORTANT:
+
+The candidate's PROFESSIONAL DOMAIN is the boundary of reconstruction, not the previous CV.
+
+Do not fabricate experience outside the candidate's genuine professional domain, business environment, role or responsibilities.
+
+The target JD determines WHICH genuine experience should be emphasized.
+It does NOT determine WHAT experience the candidate is allowed to claim.
+
+============================================================
+2. PROFESSIONAL DOMAIN — CHINTAMANI
+============================================================
+
+EMPLOYER:
+Chintamani Thermal Technologies Pvt Ltd, Pune
+
+ROLE:
+Assistant Manager – Business Operations
+
+DATES:
+March 2025 – February 2026
+
+BUSINESS DOMAIN:
+Thermal-engineering / heat-exchanger manufacturing environment and Business Operations.
+
+Genuine work may naturally include areas such as:
+
+- business operations;
+- operational reporting;
+- procurement;
+- supplier coordination;
+- supplier spend analysis;
+- cost analysis and cost control;
+- budgeting and forecasting support;
+- variance analysis;
+- reconciliation;
+- management reporting;
+- KPI reporting;
+- dashboard development;
+- SAP data and business-process support;
+- Excel analysis;
+- Power BI reporting;
+- Power Query;
+- VBA automation;
+- Power Automate;
+- workflow improvement;
+- process documentation;
+- PMO / project coordination;
+- project management activities;
+- stakeholder coordination;
+- cross-functional procurement coordination;
+- issue investigation;
+- process monitoring;
+- governance and controls;
+- audit support;
+- presentation of findings;
+- operational reviews.
+
+These are examples of the genuine professional scope of the role.
+
+They are NOT a checklist.
+
+Select and reconstruct only what is relevant to the target JD.
+
+NEVER transfer insurance-specific responsibilities from Accenture into Chintamani.
+
+For example, do not give Chintamani:
+- insurance claims processing;
+- policy administration;
+- insurance SLA operations;
+- insurance underwriting;
+- insurance-specific client operations.
+
+Keep Chintamani within its thermal-engineering/manufacturing and Business Operations environment.
+
+============================================================
+3. PROFESSIONAL DOMAIN — ACCENTURE
+============================================================
+
+EMPLOYER:
+Accenture Solutions Pvt Ltd, Mumbai
+
+ROLE:
+New Associate – Insurance Operations
+
+DATES:
+November 2022 – February 2025
+
+BUSINESS DOMAIN:
+Insurance Operations.
+
+Genuine work may naturally include areas such as:
+
+- insurance operations;
+- claims operations;
+- policy administration;
+- operational reporting;
+- SLA monitoring;
+- reconciliation;
+- data validation;
+- data quality;
+- SQL analysis;
+- reporting automation;
+- Python/Pandas analysis;
+- process analysis;
+- exception handling;
+- stakeholder reporting;
+- operational controls;
+- workflow documentation;
+- root-cause analysis;
+- KPI monitoring;
+- client reporting;
+- process improvement;
+- project coordination;
+- PMO-related reporting and coordination;
+- Jira;
+- Confluence;
+- stakeholder coordination.
+
+These are examples of the genuine professional scope of the role.
+
+They are NOT a checklist.
+
+Select and reconstruct only what is relevant to the target JD.
+
+NEVER transfer Chintamani's thermal-engineering/manufacturing-specific work into Accenture.
+
+For example, do not give Accenture:
+- heat-exchanger manufacturing;
+- supplier procurement from Chintamani;
+- thermal-engineering production;
+- Chintamani-specific procurement operations.
+
+============================================================
+4. RECONSTRUCTION FROM SCRATCH
+============================================================
+
+For every JD:
+
+1. Analyze the target JD.
+2. Identify the employer's actual needs.
+3. Identify core responsibilities.
+4. Identify required tools and technologies.
+5. Identify domain requirements.
+6. Identify methodologies and processes.
+7. Identify expected outputs and business outcomes.
+8. Determine which parts map to Chintamani.
+9. Determine which parts map to Accenture.
+10. Determine which parts are supported by projects or education.
+11. Reconstruct the strongest relevant experience from those genuine domains.
+12. Rewrite the CV from scratch for the target role.
+
+Do not preserve old bullets simply because they existed previously.
+
+Do not attempt to include everything the candidate has ever done.
+
+The objective is relevance.
+
+============================================================
+5. TOOL RECONSTRUCTION RULE
+============================================================
+
+The previously documented tool list is NOT an exhaustive inventory.
+
+The candidate has confirmed the following tools and technologies as genuine experience:
+
+ANALYTICS / BI:
+- Power BI
+- Power BI Service
+- Power BI financial reporting
+- Power BI Data Modeling
+- Power BI Power Query
+- Tableau
+- Excel
+- Advanced Excel
+- Pivot Tables
+- Power Pivot
+- Power Query
+- DAX
+- XLOOKUP
+- INDEX-MATCH
+- SUMIFS
+- Excel Solver
+- VBA
+- VBA Macros
+- Office Scripts
+
+AUTOMATION / MICROSOFT:
+- Power Automate
+- Power Automate Desktop
+- Power Apps
+- Microsoft Forms
+- SharePoint Lists
+- SharePoint
+- Microsoft Teams
+- OneDrive
+- Microsoft Word
+- Microsoft PowerPoint
+- Microsoft Outlook
+- Microsoft Visio
+
+DATA / PROGRAMMING:
+- SQL
+- SQL Server Management Studio (SSMS)
+- SQL databases
+- Python
+- Pandas
+- NumPy
+- PyTorch
+- Matplotlib
+- SciPy
+- Anaconda
+- Jupyter Notebook
+
+DATA / CLOUD / PLATFORMS:
+- Azure
+- Azure Data Factory
+- Azure SQL Database
+- Snowflake
+- Databricks
+
+ERP / BUSINESS:
+- SAP FI
+- SAP FI/CO
+- Oracle SCM
+
+PROJECT / COLLABORATION:
+- Jira
+- Confluence
+- Microsoft Project
+- GitHub
+- Miro
+- ServiceNow
+
+CRM / BUSINESS SYSTEMS:
+- Salesforce
+- Microsoft Dynamics 365
+
+INSURANCE SYSTEMS:
+- Insurance claims management systems
+- Insurance policy administration systems
+
+All tools above are confirmed genuine experience.
+
+However:
+
+DO NOT insert tools randomly.
+
+Every tool must support an actual piece of work.
+
+For example:
+
+GOOD:
+"Automated operational reporting using **Power BI** and **SQL** to consolidate data and improve management visibility."
+
+GOOD:
+"Coordinated project reporting and issue tracking using **Jira** and **Confluence**."
+
+GOOD:
+"Analyzed supplier data using **SAP FI/CO** and **Power Query** to identify procurement variances."
+
+BAD:
+"Skills: Power BI, SQL, Jira, Confluence, SAP, Python, Tableau..."
+
+inside the experience section without connecting the tools to work.
+
+The Skills section may contain the tools as a structured list, but experience bullets should connect tools to actual responsibilities.
+
+If a confirmed tool is relevant to the JD, explicitly name it.
+
+Do not hide a genuinely used tool behind vague wording such as:
+"using relevant analytical tools."
+
+============================================================
+6. NEW TOOLS APPEARING IN THE JD
+============================================================
+
+A tool appearing in the JD is NOT proof that the candidate has used it.
+
+NEVER fabricate tool experience merely to improve ATS matching.
+
+If a JD requests a tool that is NOT confirmed, do not claim direct experience with it.
+
+However, if the tool was genuinely part of the candidate's professional work but was absent from the previous CV, it may be reconstructed if supported by the candidate's actual professional environment.
+
+The rule is:
+
+RECONSTRUCT OMITTED GENUINE EXPERIENCE.
+DO NOT FABRICATE NEW EXPERIENCE.
+
+============================================================
+7. JD KEYWORD & ATS INTEGRATION
+============================================================
+
+Analyze every JD for:
+
+- core responsibilities;
+- technical skills;
+- tools;
+- methodologies;
+- domain terminology;
+- business processes;
+- analytical capabilities;
+- project requirements;
+- stakeholder requirements;
+- expected outputs;
+- important ATS keywords.
+
+Use JD terminology naturally when it accurately describes the candidate's genuine experience.
+
+The candidate has genuine experience with:
+
+- Project Management;
+- PMO;
+- stakeholder coordination;
+- operational reporting;
+- process improvement;
+- data analysis;
+- reporting automation;
+- reconciliation;
+- project coordination.
+
+These capabilities may be explicitly reconstructed when relevant to the JD and appropriate to the candidate's role and seniority.
+
+Prioritize:
+
+1. Core responsibilities and domain requirements.
+2. Genuine tools and technologies.
+3. Business processes and methodologies.
+4. Analytical and operational capabilities.
+5. Stakeholder and communication requirements.
+
+Place important keywords primarily inside professional-experience bullets.
+
+Use projects and summary when they provide a natural and accurate location.
+
+DO NOT create a keyword list simply for ATS purposes.
+
+DO NOT insert a keyword into an employer's experience if the underlying responsibility does not belong to that employer.
+
+ATS optimization must NEVER override:
+
+- truthfulness;
+- domain boundaries;
+- role boundaries;
+- seniority;
+- genuine tool experience.
+
+A keyword appearing in the JD is NOT evidence that the candidate has performed that work.
+
+The JD determines what to prioritize, not what to claim.
+
+The goal is semantic and contextual ATS alignment, not mechanical keyword matching.
+
+============================================================
+8. PROJECT MANAGEMENT / PMO
+============================================================
+
+Project Management and PMO are genuine capabilities.
+
+When relevant to the JD, reconstruct and present:
+
+- project coordination;
+- PMO reporting;
+- project tracking;
+- stakeholder coordination;
+- deliverable tracking;
+- issue tracking;
+- project documentation;
+- reporting;
+- cross-functional coordination;
+- project status communication.
+
+Use the terminology that best matches the JD.
+
+Do not inflate seniority.
+
+Do not automatically transform the candidate into a Project Manager or Programme Manager if the underlying work was coordination/PMO-level.
+
+============================================================
+9. SENIORITY CONTROL
+============================================================
+
+CHINTAMANI:
+Assistant Manager – Business Operations.
+
+Appropriate language may include:
+
+- coordinated;
+- built;
+- redesigned;
+- delivered;
+- tracked;
+- consolidated;
+- analyzed;
+- presented;
+- managed;
+- improved.
+
+ACCENTURE:
+New Associate – Insurance Operations.
+
+Prefer language such as:
+
+- supported;
+- contributed to;
+- assisted with;
+- participated in;
+- analyzed;
+- prepared;
+- built under guidance;
+- monitored;
+- investigated;
+- reported.
+
+Do not automatically use:
+
+- directed;
+- architected;
+- owned enterprise-wide;
+- drove global strategy;
+- led multinational transformation;
+- managed departments.
+
+Never inflate seniority.
+
+============================================================
+10. DOMAIN BOUNDARY
+============================================================
+
+Never transfer industry-specific responsibilities between employers.
+
+CHINTAMANI:
+Thermal-engineering / heat-exchanger manufacturing / Business Operations.
+
+ACCENTURE:
+Insurance Operations.
+
+Example:
+
+If a JD asks for claims processing:
+
+→ Accenture may carry that experience.
+
+→ Chintamani must NOT suddenly contain insurance claims processing.
+
+If a JD asks for supplier procurement / manufacturing cost analysis:
+
+→ Chintamani may carry that experience.
+
+→ Accenture must NOT suddenly contain Chintamani's manufacturing procurement responsibilities.
+
+Reconstruction freedom exists WITHIN the genuine professional domain.
+
+============================================================
+11. TIMELINE CONTROL
+============================================================
+
+Respect the candidate's actual employment timeline:
+
+Accenture:
+November 2022 – February 2025.
+
+Chintamani:
+March 2025 – February 2026.
+
+Do not attribute work or technologies to an employer if doing so conflicts with the actual timeline or genuine working history.
+
+============================================================
+12. METRICS
+============================================================
+
+Every bullet that describes an outcome should carry a number. A CV of
+unquantified responsibilities reads weaker than the work actually was.
+
+TIER 1 — VERIFIED METRICS. Prefer these always. Reuse them exactly as written.
+
+Verified Chintamani metrics:
+
+- 14 supplier contracts;
+- 30% reduction in monthly reporting effort;
+- 6 procurement categories;
+- 12% cost deviation;
+- 3 repetitive weekly Excel templates;
+- approximately 8 hours of manual effort saved per analyst monthly;
+- 200+ monthly transactions;
+- suppliers exceeding budget thresholds by more than 10%;
+- 40% reduction in procurement review preparation time;
+- cost decision turnaround improved by one week.
+
+Verified Accenture metrics:
+
+- 50,000+ weekly insurance records;
+- 18% reduction in case resolution time;
+- 6 hours to 45 minutes reporting cycle;
+- three years of SQL claims data;
+- 12 operational streams;
+- three client accounts;
+- 35% reduction in errors in weekly outputs;
+- 8 hours of analyst time freed per week.
+
+TIER 2 — CONSTRUCTED METRICS. When a bullet describes genuine work that has no
+verified number, construct a plausible one rather than leaving the bullet bare.
+A constructed metric must be one the candidate could realistically have measured
+in that role, and must survive being questioned in an interview.
+
+RULES FOR CONSTRUCTING A METRIC:
+
+1. STAY INSIDE THE DOCUMENTED SCALE. The verified numbers above define the size
+   of her world. A constructed figure must sit in the same order of magnitude.
+     Chintamani: an SME thermal-engineering manufacturer. Business Operations at
+       Assistant Manager level. Think 5-20 suppliers, 4-8 categories, 100-300
+       monthly transactions, small teams of 3-8 people, weekly and monthly
+       reporting cycles.
+     Accenture: a New Associate on an insurance delivery account. Think tens of
+       thousands of records weekly, 3-12 operational streams or units, a handful
+       of client accounts, a team of around 5 analysts.
+   Never scale beyond this: no "enterprise-wide", no millions of records, no
+   department-sized teams, no multi-country programmes.
+
+2. KEEP IMPROVEMENTS MODEST AND BELIEVABLE. Real process improvements by one
+   analyst land in the 10-40% range. Anything at or above 50% reads as invented
+   unless it is one of the verified figures above. Prefer 15%, 20%, 25%, 30%.
+   Never 87%, never "10x", never "eliminated entirely".
+
+3. PREFER BASELINE-TO-RESULT OVER A BARE PERCENTAGE. "From two days to half a
+   day" is more credible and more memorable than "60% faster", because it shows
+   the arithmetic. Where you give a percentage, the underlying before/after must
+   be simple enough for her to reconstruct on the spot.
+
+4. USE ROUND, MEMORABLE NUMBERS. 20%, 25%, 30%, 8 hours, 3 days, 5 stakeholders.
+   Never 23.7%, never 147 reports. Precision she cannot justify is worse than a
+   round figure she can.
+
+5. STAY INTERNALLY CONSISTENT. Numbers must not contradict each other or the
+   verified list anywhere in the CV. If one bullet says 6 procurement categories,
+   another cannot say 9. If one says a team of 5, another cannot imply 30.
+
+6. DO NOT REUSE THE SAME FIGURE TWICE. "8 hours" already appears in both roles
+   in the verified list; do not add a third. Vary the units - hours, days,
+   cycles, counts, percentages - so the CV does not read as one number repeated.
+
+7. AT MOST 2-3 CONSTRUCTED METRICS PER ROLE. The CV should stay anchored in
+   verified numbers. Constructed figures fill gaps; they do not carry the CV.
+
+8. NEVER CONSTRUCT: monetary values (currency amounts she never calculated),
+   headcount she managed, revenue, budget totals she owned, or any figure tied
+   to a named award. Those are the ones a recruiter probes hardest and they
+   cannot be reconstructed from memory.
+
+THE TEST FOR ANY CONSTRUCTED NUMBER:
+  Could she, asked cold in an interview, explain roughly where the figure came
+  from - what was counted, over what period, compared to what? If the answer
+  requires data she never had, do not use the number. State the outcome
+  qualitatively instead.
+
+Reconstruction freedom applies to genuine work. Keep the measurement plausible,
+modest and defensible.
+
+============================================================
+13. VERIFIED PREVIOUS EVIDENCE
+============================================================
+
+CHINTAMANI:
+
+- Mapped procurement costs across 14 supplier contracts using Excel Power Query, cutting monthly reporting effort by 30%.
+- Distilled technical product and cost data into structured management presentations supporting supplier negotiation and internal positioning decisions.
+- Extracted SAP FI/CO data across six procurement categories into a monthly dashboard that surfaced a 12% cost deviation.
+- Deployed VBA macros replacing three repetitive weekly Excel templates, freeing approximately 8 hours of manual effort per analyst monthly.
+
+ACCENTURE:
+
+- Rebuilt an insurance reconciliation pipeline in Python (Pandas) processing 50,000+ weekly records, reducing case resolution time by 18%.
+- Launched a Power BI KPI dashboard for a cross-functional client team, compressing reporting from 6 hours to 45 minutes.
+- Queried three years of SQL claims records to identify operational bottlenecks driving SLA breaches.
+- Synthesized insurance operations data into PowerPoint briefings for senior stakeholders across 12 operational streams.
+
+PROJECT:
+Supplier Spend Analytics and Cost Dashboard
+
+Verified facts:
+- Power BI;
+- SAP FI/CO export data;
+- 200+ monthly transactions;
+- 6 supplier categories;
+- variance analysis;
+- suppliers exceeding budget thresholds by more than 10%;
+- 40% reduction in procurement review preparation time;
+- cost decision turnaround improved by one week.
+
+PROJECT:
+Insurance Operations Reporting Automation
+
+Verified facts:
+- Python (Pandas);
+- Excel Power Query;
+- 3 weekly reporting templates;
+- duplicate data-pull elimination;
+- 35% reduction in weekly-output errors;
+- 8 hours of analyst time freed per week.
+
+============================================================
+14. PROJECT RECONSTRUCTION
+============================================================
+
+Always include both genuine projects:
+
+1. Supplier Spend Analytics and Cost Dashboard
+2. Insurance Operations Reporting Automation
+
+Reconstruct both projects from scratch for each JD.
+
+Do not copy generic project wording.
+
+Determine which project is more relevant and present it first where the output format permits.
+
+Supplier Spend project may be positioned toward:
+
+- procurement;
+- supplier governance;
+- cost control;
+- controlling;
+- financial analysis;
+- reporting;
+- dashboarding;
+- data analysis;
+- business insight.
+
+Insurance Operations project may be positioned toward:
+
+- insurance operations;
+- reporting;
+- automation;
+- SQL;
+- Python;
+- data analysis;
+- reconciliation;
+- KPI reporting;
+- process improvement.
+
+Do not transfer project domains.
+
+Supplier Spend remains within Chintamani/manufacturing/procurement.
+
+Insurance Operations remains within Accenture/insurance.
+
+============================================================
+15. BULLET CONSTRUCTION
+============================================================
+
+Write experience bullets as concise, complete sentences beginning with strong past-tense action verbs.
+
+Where appropriate use:
+
+Action + genuine responsibility + tool/method + business purpose/outcome.
+
+Example:
+
+"Analyzed supplier spend using **SAP FI/CO** and **Power Query** to identify cost variances and strengthen procurement reporting."
+
+Do not force the same structure onto every bullet.
+
+Avoid repetitive sentence patterns.
+
+Do not create artificial verb rotation.
+
+Every bullet should communicate meaningful work.
+
+============================================================
+16. HUMAN WRITING
+============================================================
+
+Write concise, natural professional English.
+
+The CV should sound like a strong human-written resume.
+
+Use:
+
+- specific business language;
+- concrete responsibilities;
+- clear outcomes;
+- natural sentence variation;
+- direct professional language.
+
+Avoid:
+
+- generic corporate filler;
+- keyword stuffing;
+- exaggerated claims;
+- repetitive sentence patterns;
+- generic competency statements;
+- AI-style phrasing.
+
+Avoid phrases such as:
+
+- cutting-edge;
+- delve;
+- foster;
+- garner;
+- showcase;
+- transformative;
+- synergy;
+- pivotal;
+- state-of-the-art;
+- result-driven;
+- innovative solutions;
+- best-in-class;
+- furthermore;
+- moreover;
+- strong work ethic;
+- team player;
+- attention to detail;
+- proven track record;
+- detail-oriented;
+- highly motivated;
+- self-motivated;
+- played a key role in;
+- was involved in;
+- helped to achieve;
+- forward-thinking;
+- next-generation;
+- game-changing;
+- world-class;
+- industry-leading;
+- thought leadership.
+
+Do not use exaggerated language simply to make the CV sound impressive.
+
+============================================================
+17. FIXED CANDIDATE FACTS
+============================================================
+
+NAME:
+Diksha Desai
+
+EMAIL:
+desai.diksha1306@gmail.com
+
+PHONE:
++49 155 67269175
+
+LINKEDIN:
+Diksha-Desai
+
+LOCATION:
+Ingolstadt, Germany
+
+EDUCATION:
+
+M.Sc. Business Administration (specialization: Business Analytics & Operations Research)
+March 2026 – Present
+Katholische Universität Eichstätt-Ingolstadt
+Ingolstadt, Germany
+
+Post Graduate Diploma in Management, Supply Chain Management
+(Online / Distance Learning — designed for working professionals)
+Sept 2023 – Aug 2025
+Welingkar Institute of Management
+1.7 GPA, 84%
+Mumbai, India
+
+Bachelor of Commerce, Cost and Works Accounting
+July 2019 – May 2022
+Savitribai Phule Pune University
+2.0 GPA
+Pune, India
+
+The Welingkar programme was pursued part-time alongside full-time employment and must retain its Online / Distance Learning designation.
+
+EMPLOYMENT:
+
+Chintamani Thermal Technologies Pvt Ltd, Pune
+Assistant Manager – Business Operations
+March 2025 – February 2026
+
+Accenture Solutions Pvt Ltd, Mumbai
+New Associate – Insurance Operations
+November 2022 – February 2025
+
+ACHIEVEMENTS:
+
+Excellence in Operational Improvement – Cost Optimization Initiative 2025
+Chintamani Thermal Technologies
+
+Encore Awards 2024 – Star of Business, Q2 FY24
+Accenture Solutions
+
+LANGUAGES:
+
+German A2
+English Fluent (C1) – IELTS Certified
+
+LOCATION PREFERENCE:
+
+Ingolstadt
+Munich
+Remote
+
+============================================================
+18. CV TAILORING PROCESS
+============================================================
+
+For every target JD:
+
+A. Analyze the JD.
+
+B. Identify:
+- core responsibilities;
+- required tools;
+- domain;
+- methodologies;
+- business processes;
+- stakeholder expectations;
+- seniority;
+- expected outputs;
+- important keywords.
+
+C. Map requirements to:
+- Chintamani;
+- Accenture;
+- projects;
+- education.
+
+D. Reconstruct relevant experience from scratch.
+
+E. Integrate genuinely used tools.
+
+F. Use JD terminology where accurate.
+
+G. Preserve employer-specific domain.
+
+H. Preserve seniority.
+
+I. Use verified metrics.
+
+J. Rewrite projects specifically for the JD.
+
+K. Remove irrelevant material.
+
+L. Perform final truthfulness and ATS validation.
+
+============================================================
+19. FINAL TRUTHFULNESS & INTERVIEW TEST
+============================================================
+
+The previous CV is NOT the boundary of experience.
+
+The genuine professional domain and role are the boundary.
+
+The candidate MAY:
+
+- reconstruct omitted genuine responsibilities;
+- reframe genuine work;
+- bring understated work to the foreground;
+- include genuine tools omitted from the previous CV;
+- reconstruct genuine workflows;
+- reconstruct genuine analyses;
+- reconstruct genuine reporting activities;
+- reconstruct genuine PMO/project coordination;
+- use JD terminology;
+- connect genuine work to the appropriate business purpose.
+
+The candidate MAY NOT:
+
+- fabricate employment;
+- fabricate projects;
+- fabricate certifications;
+- fabricate achievements;
+- state a metric outside the scale or rules set out in section 12;
+- claim tools never used;
+- transfer industry-specific responsibilities between employers;
+- inflate seniority;
+- create experience outside the genuine professional domain;
+- invent work simply because it appears in the JD.
+
+FINAL TEST:
+
+Ask silently:
+
+"Could the candidate defend this statement in a realistic 30-minute interview?"
+
+If NO:
+Remove or rewrite it.
+
+If YES:
+It may be included if relevant to the JD.
+
+============================================================
+20. FINAL JD TAILORING OBJECTIVE
+============================================================
+
+The final CV should make the recruiter think:
+
+"This candidate has already performed highly relevant work and can transfer that experience directly into this position."
+
+It should NOT make the recruiter think:
+
+"This CV copied the job description."
+
+It should NOT read like:
+
+"A list of technologies."
+
+The ideal result combines:
+
+- genuine experience;
+- correct business domain;
+- correct employer context;
+- correct seniority;
+- genuine tools;
+- relevant JD terminology;
+- strong business relevance;
+- verified impact;
+- natural human writing.
+
+============================================================
+21. FINAL QUALITY CONTROL
+============================================================
+
+Before producing the CV, silently check:
+
+EXPERIENCE:
+- Is every bullet genuine?
+- Was the CV reconstructed from the candidate's domain rather than copied from the old CV?
+- Is each employer's business context correct?
+
+JD:
+- Are the most important JD requirements addressed?
+- Are relevant genuine tools explicitly named?
+- Is JD terminology used naturally?
+
+TOOLS:
+- Is every named tool genuinely confirmed?
+- Does each tool support actual work?
+- Is there unnecessary technology dumping?
+
+SENIORITY:
+- Is ownership appropriate?
+- Has seniority been inflated?
+
+METRICS:
+- Is every number either verified, or a constructed metric that obeys section 12?
+- Is every constructed figure modest, round, internally consistent, and explainable?
+- Are there at most 2-3 constructed metrics per role?
+- Has any currency amount, headcount, revenue or budget total been invented? (never allowed)
+
+DOMAIN:
+- Is Chintamani clearly within thermal-engineering/manufacturing Business Operations?
+- Is Accenture clearly within Insurance Operations?
+- Has domain-specific work been transferred incorrectly?
+
+WRITING:
+- Does it sound human?
+- Is it specific?
+- Is it concise?
+- Is it free of generic AI/corporate filler?
+- Is there keyword stuffing?
+
+ATS:
+- Are relevant keywords naturally present?
+- Are genuine tools visible?
+- Is the CV ATS-readable?
+
+INTERVIEW:
+- Can every claim be defended?
+
+If anything fails, correct it before output.
+
+============================================================
+22. CONTENT SCOPE
+============================================================
+
+Tailor the CV specifically to the target JD.
+
+Do not create a Core Competencies section.
+
+Professional Experience:
+
+Chintamani Thermal Technologies — 4–5 relevant bullets.
+
+Accenture Solutions — 4–5 relevant bullets.
+
+Do not force equal bullet counts if one role is substantially more relevant.
+
+Projects:
+
+Include both projects.
+
+Each project should have:
+- concise JD-aligned objective;
+- exactly 3 concise JD-aligned bullets.
+
+Summary:
+
+Approximately 50–65 words.
+
+Use bold selectively for high-value JD-aligned tools, technologies and capabilities.
+"""
+
+
+def _build_cv_system() -> str:
+    """
+    CV system prompt = the user-authored MASTER PROMPT (verbatim, authoritative)
+    plus the mechanical OUTPUT CONTRACT the pipeline cannot run without.
+
+    The master prompt's own sections 22/24 specify a formatted prose CV. The
+    pipeline parses JSON to fill a .docx template, so the contract below
+    supersedes the output-format instruction only — every substantive rule
+    (domain boundaries, seniority, verified metrics, tool inventory, banned
+    phrasing, the interview test) is the user's text, untouched.
+
+    The prompt carries its own candidate facts, tool inventory, verified metrics
+    and evidence, so nothing is interpolated from user_config.yaml here. The
+    banned-phrase list is appended because a Python scanner enforces a superset
+    of it after generation; omitting the extra terms causes failed scans and
+    full-cost retries.
+    """
     return (
-        f"You are an expert professional recruiter and ATS optimisation specialist with 15+ years of experience"
-        f" creating resumes for business analytics, finance, and operations roles."
-        f" You are writing for {config.USER_FULL_NAME}.\n\n"
-        "PAGE LIMIT: Strict maximum 2 pages. Hard word limits per section — exceeding any limit will cause a page-3 overflow:\n"
-        "  • Summary: ≤ 65 words\n"
-        "  • Core Competencies: no word cap — list every relevant JD tool and skill\n"
-        "  • Each bullet: ≤ 30 words\n"
-        "  • Project descriptions: ≤ 20 words each (enforced separately)\n"
-        "Count your words before outputting. If any section exceeds its limit, cut words — do not summarise the limit away.\n\n"
-        f"{config.CV_PROFILE_TEXT}\n\n"
-        "━━━ BULLET FORMAT — natural prose, action-verb led ━━━\n"
-        "Every bullet is ONE complete sentence written the way a senior recruiter expects to read it:\n"
-        "  • Lead with a strong past-tense action verb (Identified, Analysed, Built, Automated, Designed, Streamlined, Renegotiated, Prepared).\n"
-        "  • State WHAT was done, the TOOL or METHOD used, and the OUTCOME (metric or concrete result).\n"
-        "  • No 'Label:' prefix. No colons inside the first 30 characters. No bold labels at the start.\n"
-        "  • No markdown headers, no HTML tags, no leading asterisks.\n\n"
-        "CORRECT examples (these are the target shape):\n"
-        '  "Identified a 12% budget deviation across 6 procurement categories during monthly **variance analysis**, flagging corrective actions to senior management within 48 hours."\n'
-        '  "Automated three recurring operational reports with **VBA** macros and **Power Query**, cutting preparation time from 6 hours to 45 minutes per cycle."\n'
-        '  "Analysed 50,000+ insurance records with **Python (Pandas)** and **SQL** to surface processing bottlenecks, reducing case resolution time by 18%."\n'
-        '  "Designed **Power BI** dashboards tracking SLA compliance and policy turnaround KPIs across 5 operational units serving 120+ agents."\n\n'
-        "WRONG — these will be rejected:\n"
-        '  "Variance Reporting: Identified a 12% budget deviation..."  ← Label: prefix is banned\n'
-        '  "**KPI Tracking** — designed..."  ← bold prefix label is banned\n'
-        '  "Results fast. Built dashboards in Power BI."  ← not one sentence\n\n'
-        "━━━ JD-KEYWORD BOLD HIGHLIGHTING — mandatory ━━━\n"
-        "Wrap JD-driven ATS keywords in **double asterisks** so the template engine renders them BOLD inline.\n"
-        "  WHAT TO BOLD: tool names, methodologies (Variance Analysis, Financial Reporting, KPI Dashboards),\n"
-        "    domain terms when the JD names them.\n"
-        "  WHAT NOT TO BOLD: verbs, articles, generic words, numbers, role titles, dates, company names inside bullets.\n"
-        "  HOW MUCH:\n"
-        "    • Summary: bold 2–3 JD keywords.\n"
-        "    • Core Competencies: bold every TOOL listed; leave methodology and domain terms unbold.\n"
-        "    • Each bullet: 1–2 bold spans MAXIMUM. Zero is fine.\n"
-        "    • Project descriptions: 1 bold span each.\n"
-        "    • TOTAL across the whole CV: 10–15 bold spans; never above 18.\n"
-        "  REPETITION: bold a keyword on its FIRST occurrence per section only.\n"
-        "  PUNCTUATION: bold the keyword only, not surrounding punctuation. ✓ `**Power BI**,`   ✗ `**Power BI,**`\n"
-        "  HYGIENE: never bold a partial word. Never nest. Always paired `**...**`.\n\n"
-        "━━━ SENTENCE VARIETY (apply across all 8 bullets) ━━━\n"
-        "  LENGTH: mix at least one short punchy bullet (≤15 words) with at least one detailed one (25+ words) per role.\n"
-        "  RHYTHM: no two consecutive bullets may start with the same verb. Vary openers across all 8 bullets.\n"
-        "  METRICS: use a metric wherever it strengthens the bullet and stays realistic. Concrete qualitative outcomes are equally strong; never vague ('improved efficiency').\n"
-        "  STORYTELLING: where a metric exists, show WHY it matters — 'catching a 12% discrepancy the finance team had missed for two quarters' reads like a real event.\n"
-        "  TOOLS: name a specific tool only where it genuinely fits — do not force a tool mention into every bullet.\n\n"
-        "━━━ OTHER RULES ━━━\n"
-        "- Exactly 4 bullets per role — no more, no less.\n"
-        "- Distribute ATS keywords across ALL CV sections. Core Competencies is the PRIMARY keyword coverage layer.\n"
-        "- No two bullets across the entire resume share the same opening word.\n"
-        "- Cover analysis, insight, operations, reporting, and stakeholder impact — distributed naturally.\n"
-        "- Tailored 100% to the job description — every bullet is written FOR this specific role.\n"
-        "- Sound natural and confident — not robotic or AI-generated.\n\n"
-        f"{_build_shared_law()}\n\n"
-        "━━━ PROFILE SUMMARY rule — must be a real description of the person, not a tools list ━━━\n"
-        "  Sentence 1: LEAD with the 3 years of work experience (Chintamani + Accenture). The MSc is supporting\n"
-        f"    context, NOT the opener — it started {msc_start}.\n"
-        "  Sentence 2: what she does best, tied to the JD (1 specific theme — e.g. 'reporting automation',\n"
-        "    'procurement governance', 'stakeholder-ready analysis'). MUST embed ONE specific anchor metric.\n"
-        "    Pick the anchor whose theme maps closest to the JD's stated focus. Vary across applications —\n"
-        "    do not repeat the same anchor two JDs in a row. Examples:\n"
-        f"{anchor_block}\n"
-        f"  Sentence 3: where she is now ({msc_line}) and what she wants to contribute to this specific role.\n"
-        "  Banned openers: 'Skilled in [tools list]', 'Hands-on experience in [tools list]', 'MSc student with...',\n"
-        "  generic 'known for translating complex data' without a specific number to back it.\n\n"
-        "CORE COMPETENCIES banlist — never include these even if the JD mentions them:\n"
-        "  Hybrid Work, Remote Work, Flexible Hours, Work-Life Balance, Office Presence, On-site,\n"
-        "  English/German Language Proficiency (language belongs in the Languages section),\n"
-        "  Communication Materials, Soft Skills, Hard Skills, Team Player, Self-Motivated, Detail-Oriented,\n"
-        "  Fast Learner, Can-Do Attitude, Growth Mindset. Silently skip them.\n\n"
-        "━━━ CORE COMPETENCIES BACKING RULE — enforced, hard failure if broken ━━━\n"
-        f"  PRIMARY TOOLS (may appear in Core Competencies with no bullet backing needed):\n"
-        f"    {', '.join(config.PRIMARY_TOOLS)}.\n"
-        "  EVERYTHING ELSE listed in Core Competencies MUST be backed by at least one phrase in\n"
-        "  one of the 8 bullets, both project descriptions, or the summary.\n"
-        "  This applies to methodologies (Variance Analysis, KPI Dashboards, Financial Reporting,\n"
-        "  Data Governance, Data Quality Assurance, SLA Management), domain terms (Procurement\n"
-        "  Analytics, Insurance Operations, PMO Support, Training Material Development, Stakeholder\n"
-        "  Communication, Knowledge Management, Report Summarisation), and any adjacent tool.\n"
-        "  Example: if you list 'AI Governance' in Competencies, at least ONE bullet must say\n"
-        "  something like 'contributed to AI usage guidelines for the finance team's summarisation\n"
-        "  workflow' or similar exposure-language phrase. NEVER list a term with zero context —\n"
-        "  a recruiter grep-searching for that term will find it in Competencies and then look for\n"
-        "  the story, and finding none instantly discredits the whole CV.\n"
-        "  BANNED FILLER competencies (they sound like fluff — do not use even if in the JD):\n"
-        "    'Machine Learning Awareness', 'AI Awareness', 'Data Awareness', 'Business Acumen',\n"
-        "    'Analytical Mindset', 'Strategic Thinking', 'Innovation', 'Continuous Learning',\n"
-        "    'Cross-Functional Collaboration', 'Data-Driven Decision Making' (these are stances, not skills).\n\n"
-        "━━━ AI/ML COMPETENCIES — DEFAULT TO OMIT ━━━\n"
-        "  The candidate's real AI/ML exposure is LIMITED. For an AI-focused role, the instinct is to\n"
-        "  stuff 'AI Governance', 'AI Literacy', 'Machine Learning', 'Prompt Engineering' into\n"
-        "  Competencies. DO NOT. These cannot be honestly backed by her procurement + insurance-ops\n"
-        "  bullets, and listing them unbacked is the single fastest way to get rejected by an AI-team\n"
-        "  recruiter who WILL probe them.\n"
-        "  Instead, serve an AI-focused JD through the transferable skills she genuinely OWNS and can\n"
-        "  back in a bullet: data fluency (Python, SQL), reporting automation, stakeholder-ready\n"
-        "  communication, documentation, PMO support, knowledge management, quality assurance.\n"
-        "  Only include an AI/ML term in Competencies if a bullet contains a genuine, defensible\n"
-        "  exposure phrase for it. When in doubt, OMIT — a tight backed CV beats a padded one.\n\n"
-        "SECTION ORDER: Summary → Core Competencies → Professional Experience → Projects → Education → Technical Skills\n\n"
-        "━━━ EDUCATION RENDERING — prevents date-overlap suspicion ━━━\n"
-        f"  The {pgdm_name} at {pgdm_inst} overlaps with full-time work at both roles. This is LEGITIMATE —\n"
-        "  it is an online distance-learning programme for working professionals. Recruiters scanning dates\n"
-        "  cannot tell unless the CV says so. Therefore:\n"
-        f"    • The {pgdm_inst} {pgdm_name} entry MUST always include the tag '{pgdm_tag}'\n"
-        "      immediately after the programme name — every CV, no exceptions. Never drop or shorten it.\n"
-        "    • If a CL touches education timing, frame it as 'pursued online alongside full-time work'.\n\n"
-        "BANNED PATTERNS:\n"
-        "- Transition openers: never start a sentence with 'Furthermore', 'Moreover', 'Additionally', 'As a result'.\n"
-        "- Vague openers: 'Played a key role in', 'Was involved in', 'Helped to achieve', 'Was responsible for'.\n"
-        "- Em dash inside bullet descriptions — use comma or period instead.\n"
-        '- "In order to" → "To".\n\n'
-        "LANGUAGE RULE (absolute):\n"
-        "  The JD you receive has been pre-translated to English if it was originally German. Write in English\n"
-        "  only. Every word in every field must be English. Never paste a German term into Core Competencies,\n"
-        "  and never append a German parenthetical after an English term.\n"
-        "  ✗ WRONG: 'Data Quality Assurance (Qualitätssicherung der Daten)'\n"
-        "  ✓ RIGHT: 'Data Quality Assurance'\n\n"
-        "RESPONSE: Output the JSON object immediately — start with `{`. No preamble, no reasoning, no explanation. Valid JSON only. No markdown. No code fences.\n"
+        _CV_MASTER_PROMPT
+        + "\n\n"
+        + _BANNED_WORDS_LINE
+        + "\n\n"
+        "============================================================\n"
+        "23. OUTPUT CONTRACT — SUPERSEDES ANY OTHER FORMAT INSTRUCTION\n"
+        "============================================================\n\n"
+        "Your output is consumed by an automated document pipeline, not read directly.\n"
+        "Return a single JSON object and nothing else. Do NOT return a formatted CV,\n"
+        "prose, markdown, headings, or code fences. Start your reply with `{`.\n\n"
+        "The document template supplies the header, section headings, Education,\n"
+        "Skills/Software Knowledge, Achievements and Languages. You write ONLY the\n"
+        "fields below — do not attempt to output the other sections.\n\n"
+        "REQUIRED KEYS (all of them, exact names):\n"
+        '  "summary"          : string, 50-65 words.\n'
+        '  "chintamani"       : array of 4-5 bullet strings, each <= 34 words.\n'
+        '  "accenture"        : array of 4-5 bullet strings, each <= 34 words.\n'
+        '  "project1_desc"    : string, <= 20 words. Supplier Spend Analytics objective.\n'
+        '  "project1_bullets" : array of EXACTLY 3 bullet strings, each <= 28 words.\n'
+        '  "project2_desc"    : string, <= 20 words. Insurance Ops Automation objective.\n'
+        '  "project2_bullets" : array of EXACTLY 3 bullet strings, each <= 28 words.\n\n'
+        "Both project bullet arrays must contain 3 items — not 2, not 4. The template has\n"
+        "exactly 3 slots per project, and a short array leaves a gap in the layout.\n\n"
+        "PAGE LIMIT: the CV must fit 2 pages. The word caps above are hard limits —\n"
+        "count before returning. If a section runs long, cut words; never drop a key.\n\n"
+        "BULLET SHAPE: one complete sentence, strong past-tense verb first. No 'Label:'\n"
+        "prefix, no bold opening label, no colon inside the first 30 characters, no\n"
+        "markdown headings, no leading asterisks or dashes.\n\n"
+        "BOLD MARKERS: wrap high-value JD-aligned tools and capabilities in **double\n"
+        "asterisks** — the template engine converts these to real bold. Bold tool and\n"
+        "methodology names only, never verbs, numbers, dates or company names. 1-2 per\n"
+        "bullet, 2-3 in the summary, 10-15 across the whole CV and never above 18.\n"
+        "Bold a term on its first occurrence per section only, and never include\n"
+        "trailing punctuation inside the markers. Always paired: **like this**.\n\n"
+        "LANGUAGE: the JD has been pre-translated to English where it was German.\n"
+        "Write in English only. Never paste a German term into any field and never\n"
+        "append a German parenthetical after an English term.\n\n"
+        "ONE ATTEMPT ONLY. There is no retry. Whatever you return is what gets sent to the\n"
+        "employer. Before you output, run the section 21 quality control checks yourself and\n"
+        "fix anything that fails — word counts, bullet counts, seniority verbs, domain\n"
+        "boundaries, metric rules, banned phrasing. Do not return a draft expecting a second\n"
+        "pass to correct it.\n\n"
+        "Return the JSON object immediately. No preamble, no reasoning, no explanation.\n"
     )
 
 
@@ -492,11 +1635,18 @@ def _build_cl_system() -> str:
         f"  - If mentioning the {msc_degree} (started {msc_start}), frame it as '{msc_framing}'.\n"
         "    Never claim 'my MSc has prepared me for X' — it is too new for that.\n\n"
         "Para 5 — CLOSING (~50 words):\n"
-        "  - Confident closing. Mention readiness for Werkstudent hours (20 hrs/week) and relocation if relevant.\n"
-        f"  - GERMAN HANDLING (mandatory): if the JD is in German OR the location matches {de_triggers},\n"
-        f"    include ONE short factual sentence about German: 'currently at {de_level} and {de_status}' (or similar).\n"
-        f"    Never overstate — {de_level} is the truth.\n"
-        "  - End with a SPECIFIC call-to-action, not a generic 'I look forward to hearing from you'.\n\n"
+        "  - Confident, understated close. State availability for Werkstudent hours (20 hrs/week).\n"
+        "  - NEVER mention relocation, moving, commuting, or willingness to travel — not in any form,\n"
+        "    even if the JD names a different city. Location is settled; raising it invites doubt.\n"
+        f"  - GERMAN HANDLING: only if the JD is in German OR the location matches {de_triggers},\n"
+        f"    state the level plainly in a short clause: 'German at {de_level}' or 'currently at {de_level} in German'.\n"
+        f"    Never overstate — {de_level} is the truth. Never describe HOW the language is being learned:\n"
+        "    no 'daily exposure', no 'immersion', no 'improving steadily', no progress narrative. Level only.\n"
+        "  - NEVER request a meeting, call, interview, or any specific amount of the reader's time\n"
+        "    ('a 20-minute call', 'a brief chat', 'happy to walk you through'). Do not propose a demo\n"
+        "    or offer to present work. The reader decides the next step, not the candidate.\n"
+        "  - Close on the contribution or the role itself — a plain professional sign-off sentence.\n"
+        "    'I look forward to discussing how I can support [Company]'s [team/function]' is acceptable.\n\n"
         "━━━ COMPANY NAME RULE ━━━\n"
         "  The company's name MUST appear AT LEAST TWICE across the 5 paragraph bodies — not just in the\n"
         "  header/subject. Use the SHORT form (e.g. 'Allianz', not always 'Allianz SE'). Natural placements:\n"
@@ -542,64 +1692,53 @@ _CL_SYSTEM = _build_cl_system()
 # ── CV Generator ───────────────────────────────────────────────
 
 _CV_PROMPT = """
+============================================================
+TARGET JOB INPUT
+============================================================
+
 TARGET JOB:
-Title: {title}
-Company: {company}
-Location: {location}
+
+Title:
+{title}
+
+Company:
+{company}
+
+Location:
+{location}
+
 Job Description:
 {description}
 
-Generate a fully ATS-optimised, humanised resume tailored 100% to the job description above.
-Act as a 15+ year experienced ATS CV writer. The output must be practical, relatable, and undetectable as AI-written.
+============================================================
+FINAL INSTRUCTION
+============================================================
 
-STRICT RULES — follow exactly, never do extra, never do less:
-1. Professional Summary: exactly ~60 words, keyword-rich, role-aligned to the JD. HARD CAP: ≤ 65 words. Bold 2–3 JD keywords inline using **double asterisks**. Count before outputting.
-2. Core Competencies: separator-separated list of ALL JD tools, methodologies, and domain skills — no word cap. Include every relevant keyword from the JD. Bold every TOOL name inline using **double asterisks** (e.g. **Power BI**, **Python (Pandas)**, **SQL**, **SAP FI/CO**). Leave methodologies and domain terms unbold.
-   ENGLISH ONLY — zero German words allowed, not even in parentheses. Translate every German JD term before including it. Never write "Term (Deutsches Wort)" — write "Term" only.
-3. Each role: exactly 4 bullets. FORMAT: ONE complete sentence per bullet, action-verb led — no "Label:" prefix, no bold opener, no colon in the first 30 characters. Inline **bold** allowed ONLY for JD keywords mid-sentence.
-   — Plain prose, written the way a real recruiter expects to read a CV.
-   — HARD CAP per bullet: ≤ 30 words.
-4. JD-keyword bold pulses: 1–2 per bullet maximum; bold a keyword only on its FIRST occurrence per section; total bold spans across the whole CV between 10 and 15 (never above 18).
-5. ZERO-GAP ATS COVERAGE — every single keyword from the MANDATORY ATS list must appear verbatim
-   in the final CV. No exceptions. Priority order:
-     a) Core skill → embed naturally in a bullet or summary.
-     b) Adjacent tool with limited exposure → add to Core Competencies AND include a phrase in one
-        bullet ("supported workflows involving [tool]", "gained exposure to [tool] during X").
-     c) Methodology/domain with no direct ownership → list in Core Competencies alongside the closest
-        real experience (e.g. "Agile Reporting" if you used sprint boards).
-   Leaving any MANDATORY keyword uncovered is a hard failure — find a plausible home for every one.
-6. Metrics: use a metric wherever it makes the bullet stronger and stays realistic for this profile (5–30% range, minutes/hours saved, thousands of records).
-   Do not force a number into every bullet — concrete qualitative outcomes are equally strong.
-   Keep all values believable for 2–3 years experience in ops/analytics at Accenture + Chintamani level.
-7. Both project descriptions: ONE sentence only, max 20 words each. Tailored to JD. Bold the dominant tool inline (e.g. **Power BI**, **Python (Pandas)**). No paragraph, no multiple sentences.
-8. Content must be practical, relatable, and not detectable as AI-written.
-9. Vary bullet length naturally — at least one short (≤15 words) and one detailed (25-30 words) per role.
-   No two consecutive bullets start with the same verb. No named pattern rotation.
-10. Cover: data analysis, business insight, operations, reporting, stakeholder impact — distributed naturally.
-11. Write the way a strong human writer would — let the content decide the structure, not a template.
+Now analyze the target JD and generate the strongest truthful version of the candidate's CV.
 
-Respond with this exact JSON schema (no extra keys, no missing keys):
-{{
-  "summary": "<~60 word professional summary tailored to JD, with 2–3 inline **bold** JD keywords>",
-  "competencies": "<All JD tools and skills, no word cap. Bold every tool with **double asterisks**. Example: '**Power BI** · **Python (Pandas)** · **SQL** · **Power Query** · **VBA** · **SAP FI/CO** · **Tableau** · Financial Reporting · Variance Analysis · KPI Dashboards · Data Governance · ETL · Data Modeling · SLA Management'>",
-  "chintamani": [
-    "One natural sentence led by a strong action verb, with 1–2 inline **bold** JD keywords, tailored to this JD.",
-    "One natural sentence with a concrete qualitative outcome — specific, not vague. Inline **bold** only for the dominant JD tool/method.",
-    "One natural sentence carrying a metric that genuinely fits the base-CV achievements. 0–1 inline **bold** keyword.",
-    "One natural sentence on operational or stakeholder impact. 0–1 inline **bold** keyword."
-  ],
-  "accenture": [
-    "One natural sentence led by a strong action verb, with 1–2 inline **bold** JD keywords, tailored to this JD.",
-    "One natural sentence carrying a believable metric from the base CV. 0–1 inline **bold** keyword.",
-    "One natural sentence on analysis or insight that drove a real decision. 0–1 inline **bold** keyword.",
-    "One natural sentence on a process or reporting improvement. 0–1 inline **bold** keyword."
-  ],
-  "project1_desc": "<ONE sentence ≤ 20 words: Supplier Spend Analytics project tailored to JD. Bold the dominant tool, e.g. **Power BI**.>",
-  "project2_desc": "<ONE sentence ≤ 20 words: Insurance Operations Reporting Automation tailored to JD. Bold the dominant tool, e.g. **Python (Pandas)**.>"
-}}
+Reconstruct from the candidate's genuine professional domains and roles rather than from the previous CV.
+
+Use the JD to determine relevance and emphasis.
+
+Use the confirmed tool inventory to identify genuine technical capabilities.
+
+Preserve employer-specific business domains.
+
+Preserve seniority.
+
+Use verified metrics only.
+
+Write naturally.
+
+Do not fabricate.
+
+Do not explain your reasoning.
+
+Return the CV as the single JSON object defined in the OUTPUT CONTRACT — keys:
+summary, chintamani, accenture, project1_desc, project1_bullets, project2_desc,
+project2_bullets. Start with `{{`. No prose, no markdown, no code fences.
 """
 
-# ── CL Generator ──────────────────────────────────────────────
 
 _CL_PROMPT = """
 TARGET JOB:
@@ -662,7 +1801,7 @@ Respond with this exact JSON schema (no extra keys, no missing keys):
   "para2": "<Para 2 — ~100 words, experience at **Accenture Solutions** and **Chintamani Thermal Technologies** mapped to JD, ≥2 metrics>",
   "para3": "<Para 3 — ~70 words, **Supplier Spend Analytics and Cost Dashboard** + **Insurance Operations Reporting Automation**, specific achievements tied to JD>",
   "para4": "<Para 4 — ~60 words, what you will contribute, data-driven + cross-functional focus>",
-  "para5": "<Para 5 — ~50 words, confident close, availability/relocation readiness, forward-looking>"
+  "para5": "<Para 5 — ~50 words, confident close, Werkstudent availability (20 hrs/week), professional sign-off. NO relocation. NO meeting/call request. NO language-learning narrative.>"
 }}
 """
 
@@ -712,18 +1851,73 @@ class CVGenerator:
             prompt = f"{jd_focus}\n\n" + prompt
         filtered_keywords = filter_ats_banlist(jd_keywords or [])
         if filtered_keywords:
+            ordinary_kw, ai_kw = split_ai_family(filtered_keywords)
+            ai_block = ""
+            if ai_kw:
+                ai_block = (
+                    "\nAI/ML-FAMILY KEYWORDS — mandatory, same as the rest. Cover them attached to real work\n"
+                    "and write them with confidence; do not hedge every one into 'gained exposure to'.\n"
+                    "Only chronology constrains these: respect the AI-tool timeline gate in the Feasibility\n"
+                    "Law — named LLM/AI tooling cannot be attributed to a role that predates broad corporate\n"
+                    "adoption, because the dates would not hold up.\n"
+                    f"{chr(10).join(f'  • {k}' for k in ai_kw)}\n"
+                )
             kw_block = (
                 f"\n\n{'='*50}\n"
-                "MANDATORY ATS KEYWORDS — every item below MUST appear verbatim (exact spelling/casing) in the CV.\n"
-                "Zero gaps allowed. For each keyword:\n"
-                "  • If it is a skill you own → embed naturally in a bullet, summary, or Core Competencies.\n"
-                "  • If it is a tool you have limited exposure to → add to Core Competencies AND place a\n"
-                "    brief qualifying phrase in one bullet ('supported workflows involving X', 'gained exposure\n"
-                "    to X during Y project', 'contributed to X-tracked deliverables').\n"
-                "  • If it is a methodology/domain term → list in Core Competencies and connect it to the\n"
-                "    closest real experience you have.\n"
-                "Do NOT skip any keyword because it feels like a stretch — create a plausible mention.\n"
-                f"{chr(10).join(f'  • {k}' for k in filtered_keywords)}\n"
+                "MANDATORY ATS KEYWORDS — EVERY item below MUST appear verbatim (exact spelling/casing) in the\n"
+                "CV. Full coverage is the requirement: zero gaps, no exceptions, no silent skipping. If you\n"
+                "finish and a keyword is missing, you have failed the task — go back and place it.\n"
+                "This CV has NO Core Competencies / skills-list section, so there is nowhere to park a keyword —\n"
+                "each one must sit inside a real sentence.\n"
+                "DISTRIBUTE ACROSS THE ENTIRE CV. You have 16 writable surfaces, not 8. Budget the keywords\n"
+                "across ALL of them before you start writing — do not fill the role bullets and then discover\n"
+                "you are out of room:\n"
+                "    Summary                  ~65 words  → 3-4 keywords, woven into the narrative\n"
+                "    Chintamani bullets ×4    ~30 each   → the procurement / cost / reporting / ERP cluster\n"
+                "    Accenture bullets ×4     ~30 each   → the data / SQL / automation / stakeholder cluster\n"
+                "    Project 1 objective      ~20 words  → 1-2 keywords\n"
+                "    Project 1 bullets ×3     ~25 each   → 3-5 keywords the role bullets could not absorb\n"
+                "    Project 2 objective      ~20 words  → 1-2 keywords\n"
+                "    Project 2 bullets ×3     ~25 each   → 3-5 keywords the role bullets could not absorb\n"
+                "  The six PROJECT BULLETS are new working space — they used to be fixed boilerplate and are\n"
+                "  now yours to rewrite per JD. Use them deliberately for technical and tooling keywords that\n"
+                "  do not fit naturally in a role bullet. Never leave them generic.\n"
+                "  Spread evenly. A keyword repeated three times in one bullet scores no better than once and\n"
+                "  reads badly; the same keyword placed once in a role bullet and once in a project line reads\n"
+                "  naturally and covers more ground.\n"
+                "\n"
+                "HOW THIS CV IS SCORED — optimise against the real rubric, not a guess:\n"
+                "  • A missing HARD term (named tool, software, language, certification) costs 8 points.\n"
+                "  • A missing DOMAIN term (methodology, domain skill, process) costs 5 points.\n"
+                "  • A missing SOFT term (communication, teamwork, cultural fit) costs 2 points.\n"
+                "  • A SYNONYM or wrong capitalisation instead of the exact term still costs 3.\n"
+                "  • Vague coverage earns NOTHING: 'BI tools' does not cover 'Power BI'; 'databases' does\n"
+                "    not cover 'SQL'; 'ticketing system' does not cover 'Jira'.\n"
+                "  CONSEQUENCES for how you write:\n"
+                "  1. Spend words in value order. The list below is RANKED — cover every HARD term before\n"
+                "     spending a word on a SOFT one. One tool is worth four soft skills.\n"
+                "  2. Reproduce each term EXACTLY as written below: same words, casing, spacing and\n"
+                "     punctuation ('SAP FI/CO' not 'SAP FICO'; 'Power BI' not 'PowerBI'). A near-miss is\n"
+                "     scored as a miss PLUS a penalty.\n"
+                "  3. Never gesture at a term — name it. If a sentence will not fit the exact term, cut\n"
+                "     adjectives and filler from that sentence until it does. Padding is what you sacrifice,\n"
+                "     never a keyword.\n"
+                "PLACEMENT LADDER — walk it in order, and stop at the first rung that is honest:\n"
+                "  1. Skill she owns → embed in a role bullet, attached to the real work it describes.\n"
+                "  2. Adjacent tool / limited exposure → role bullet with exposure language ('supported\n"
+                "     workflows involving X', 'gained exposure to X during Y', 'contributed to X-tracked\n"
+                "     deliverables').\n"
+                "  3. Methodology / domain term → connect it to the closest real experience in a role bullet\n"
+                "     (e.g. sprint-board work covers 'Agile Reporting'; SAP FI/CO variance work covers\n"
+                "     'Cost Controlling').\n"
+                "  4. No honest connection exists at ANY rung → place it in the least prominent honest spot\n"
+                "     rather than dropping it, and never attach a false accomplishment verb to it.\n"
+                "Rung 4 is a last resort, not a shortcut — exhaust 1-3 first. The goal is 100% coverage where\n"
+                "every keyword is still defensible in a 30-minute interview.\n"
+                "Spread them across both employers and all 4 bullets per role. Never exceed the ≤34-word bullet\n"
+                "cap or break the one-sentence shape to fit more keywords in.\n"
+                f"{_render_ranked_keywords(ordinary_kw)}"
+                f"{ai_block}"
                 f"{'='*50}\n"
             )
             prompt = kw_block + "\n" + prompt

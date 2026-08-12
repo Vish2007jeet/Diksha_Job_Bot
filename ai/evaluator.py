@@ -203,10 +203,10 @@ class EvalResult:
 
         if self.missing_keywords:
             lines.append(
-                "❌ MISSING JD KEYWORDS — embed each verbatim (exact casing) in the most natural section:\n"
-                "  • Tools / software / abbreviations → Core Competencies or bullet descriptions\n"
-                "  • Domain skills / methodologies   → summary or Core Competencies\n"
-                "  • Role requirements / soft skills  → bullet descriptions or summary\n"
+                "❌ MISSING JD KEYWORDS — embed each verbatim (exact casing) inside a real sentence.\n"
+                "  There is NO Core Competencies section — put the majority into the 8 Professional\n"
+                "  Experience bullets (Chintamani + Accenture), attached to the work they describe.\n"
+                "  Use the project lines or summary only when no role bullet can carry the keyword.\n"
             )
             lines += [f"  - {k}" for k in self.missing_keywords]
             lines.append("")
@@ -221,8 +221,6 @@ def cv_dict_to_text(data: dict) -> str:
     parts = []
     if data.get("summary"):
         parts.append(f"PROFESSIONAL SUMMARY:\n{data['summary']}")
-    if data.get("competencies"):
-        parts.append(f"CORE COMPETENCIES:\n{data['competencies']}")
     role_map = {
         "chintamani": "CHINTAMANI THERMAL TECHNOLOGIES PVT LTD",
         "accenture":  "ACCENTURE SOLUTIONS PVT LTD",
@@ -231,10 +229,20 @@ def cv_dict_to_text(data: dict) -> str:
         bullets = data.get(key, [])
         if bullets:
             parts.append(f"{label}:\n" + "\n".join(f"  • {b}" for b in bullets))
-    if data.get("project1_desc"):
-        parts.append(f"PROJECT — SUPPLIER SPEND ANALYTICS AND COST DASHBOARD:\n{data['project1_desc']}")
-    if data.get("project2_desc"):
-        parts.append(f"PROJECT — INSURANCE OPERATIONS REPORTING AUTOMATION:\n{data['project2_desc']}")
+    # Project objectives AND their 3 bullets each. The bullets are generated
+    # per-JD (they used to be fixed template boilerplate) — leaving them out
+    # here would hide them from BOTH the ATS scorer and the banned-word scan,
+    # which is how "attention to detail" shipped under a banned=none report.
+    for key, bullets_key, label in (
+        ("project1_desc", "project1_bullets", "SUPPLIER SPEND ANALYTICS AND COST DASHBOARD"),
+        ("project2_desc", "project2_bullets", "INSURANCE OPERATIONS REPORTING AUTOMATION"),
+    ):
+        chunk = []
+        if data.get(key):
+            chunk.append(data[key])
+        chunk += [f"  • {b}" for b in (data.get(bullets_key) or [])]
+        if chunk:
+            parts.append(f"PROJECT — {label}:\n" + "\n".join(chunk))
     return "\n\n".join(parts)
 
 

@@ -1754,6 +1754,16 @@ class BotHandlers:
                     parse_mode="HTML",
                 ))
 
+            # CV quality warnings — auto-retry is off, so these ship as-is.
+            # Shown so the user can decide whether to press Regenerate.
+            if result.cv_warnings:
+                warn_lines = "\n".join(f"  • {w}" for w in result.cv_warnings)
+                await self._tg_send(lambda: bot.send_message(
+                    chat_id,
+                    f"⚠️ <b>CV Quality Warnings</b> — shipped as-is, tap Regenerate if it matters:\n{warn_lines}",
+                    parse_mode="HTML",
+                ))
+
             # CL quality warnings
             if result.cl_warnings:
                 warn_lines = "\n".join(f"  • {w}" for w in result.cl_warnings)
@@ -1885,6 +1895,14 @@ class BotHandlers:
                 await self._tg_send(lambda: bot.send_message(
                     chat_id,
                     result.generation_expense,
+                    parse_mode="HTML",
+                ))
+
+            if result.cv_warnings:
+                warn_lines = "\n".join(f"  • {w}" for w in result.cv_warnings)
+                await self._tg_send(lambda: bot.send_message(
+                    chat_id,
+                    f"⚠️ <b>CV Quality Warnings</b> — shipped as-is, tap Regenerate if it matters:\n{warn_lines}",
                     parse_mode="HTML",
                 ))
 

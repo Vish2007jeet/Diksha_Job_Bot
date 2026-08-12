@@ -6,12 +6,21 @@ Template structure (detected from inspection):
   - Variable paragraphs (to be replaced per job) have no special color
 
 CV Variable Paragraph Indices (Diksha Desai template):
-  summary        : 4
-  competencies   : 6
-  chintamani_1..4: 17,18,19,20  (Chintamani Thermal Technologies bullets)
-  accenture_1..4 : 23,24,25,26  (Accenture Solutions bullets)
-  project1_desc  : 29           (Supplier Spend Analytics — Objective line)
-  project2_desc  : 34           (Insurance Operations — Objective line)
+  summary          : 4
+  chintamani_1..5  : 15,16,17,18,19  (Chintamani Thermal Technologies bullets)
+  accenture_1..5   : 22,23,24,25,26  (Accenture Solutions bullets)
+  project1_desc    : 29              (Supplier Spend Analytics — Objective line)
+  project1_bullets : 30,31,32
+  project2_desc    : 34              (Insurance Operations — Objective line)
+  project2_bullets : 35,36,37
+
+NOTE 1: the Core Competencies block (formerly paragraphs 5-6) was removed from
+the template, shifting everything below the summary up by 2.
+NOTE 2: a 5th bullet slot was then added to each role, shifting everything below
+Chintamani down by 1 and everything below Accenture down by 2.
+The generator may return FEWER bullets than there are slots (4-5 per role, 2-3
+per project); unused slots are deleted by _blank_paragraph so no stale template
+text survives.
 
 CL Variable Paragraph Indices:
   date_line      : 2  (tab + date portion only)
@@ -40,13 +49,21 @@ from utils.logger import logger
 # ── Paragraph index maps ───────────────────────────────────────
 
 CV_SECTIONS = {
-    "summary":        [4],
-    "competencies":   [6],
-    "chintamani":     [17, 18, 19, 20],
-    "accenture":      [23, 24, 25, 26],
-    "project1_desc":  [29],
-    "project2_desc":  [34],
+    "summary":          [4],
+    "chintamani":       [15, 16, 17, 18, 19],
+    "accenture":        [22, 23, 24, 25, 26],
+    "project1_desc":    [29],
+    "project1_bullets": [30, 31, 32],
+    "project2_desc":    [34],
+    "project2_bullets": [35, 36, 37],
 }
+
+# Project bullet paragraphs are plain 'Normal' style carrying a literal
+# "• " prefix in the run text (unlike the role bullets, which use real
+# List Paragraph formatting). Replacing them without re-adding the prefix
+# silently drops the bullet glyph, so they get their own handler.
+_PROJECT_BULLET_SECTIONS = frozenset({"project1_bullets", "project2_bullets"})
+_BULLET_PREFIX = "• "
 
 CL_SECTIONS = {
     "company_name":    [3],
@@ -79,7 +96,6 @@ class TemplateEngine:
 
         Expected content keys:
           summary        : str   (plain text, ~60 words)
-          competencies   : str   (comma-separated, ~60 words)
           chintamani     : list of 4 strings, each "Bold Label: description."
           accenture      : list of 4 strings, each "Bold Label: description."
           project1_desc  : str   (~50 words, Supplier Spend Analytics objective)
@@ -99,9 +115,23 @@ class TemplateEngine:
 
             if isinstance(value, list):
                 # Bullet lists — one string per bullet
+                is_project_bullet = section in _PROJECT_BULLET_SECTIONS
                 for idx, text in zip(indices, value):
                     if idx < len(paras):
-                        self._replace_bullet(paras[idx], text.strip())
+                        text = text.strip()
+                        if is_project_bullet:
+                            # Re-add the literal "• " the template carries in-run
+                            text = text.lstrip("•").lstrip()
+                            text = f"{_BULLET_PREFIX}{text}"
+                        self._replace_bullet(paras[idx], text)
+
+                # The generator may return FEWER bullets than the template has
+                # slots (roles allow 3-4, projects 2-3). Any slot left untouched
+                # would still show the base template's original bullet text, so
+                # blank the leftovers and drop them from the layout.
+                for idx in indices[len(value):]:
+                    if idx < len(paras):
+                        self._blank_paragraph(paras[idx])
             else:
                 if indices[0] < len(paras):
                     if section in ("project1_desc", "project2_desc"):
@@ -163,6 +193,19 @@ class TemplateEngine:
 
     # ── Low-level replacers ────────────────────────────────────
 
+    @staticmethod
+    def _blank_paragraph(para) -> None:
+        """
+        Empty an unused bullet slot and remove it from the flow.
+
+        Clearing the runs alone leaves an empty bullet glyph and a blank line, so
+        the paragraph element is removed from its parent outright.
+        """
+        el = para._element
+        parent = el.getparent()
+        if parent is not None:
+            parent.remove(el)
+
     def _replace_bullet(self, para, text: str) -> None:
         """
         Replace a CV bullet paragraph with natural-prose text.
@@ -176,7 +219,7 @@ class TemplateEngine:
 
     def _replace_plain(self, para, text: str) -> None:
         """
-        Replace a paragraph (summary, competencies).
+        Replace a plain paragraph (summary).
         Honors inline **bold** markers for JD-keyword highlighting.
         Never forces bold=False — lets the paragraph style inherit naturally.
         """

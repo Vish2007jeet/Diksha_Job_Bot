@@ -391,6 +391,21 @@ _BANNED_WORDS_LINE = _render_banned_words_line()
 
 def _build_evidence_inventory() -> str:
     """
+    ⚠ DEAD CODE — NOT WIRED INTO ANY PROMPT (verified 2026-08-12).
+
+    Nothing calls this function. It is not in `_CV_SYSTEM`, not in `_CL_SYSTEM`,
+    and not in the JD-analysis path. Reading it as a description of live
+    behaviour is a mistake — the rules below (SELECT / RE-ANGLE / REWRITE, the
+    improvement-metric ban) do NOT reach the model.
+
+    What actually governs CV generation:
+      • `_CV_SYSTEM` — the master prompt, incl. the TIER 1/TIER 2 metrics rules.
+      • `documents/pipeline.py` → the strategist block, which passes
+        `config.CV_BULLETS_TEXT` as calibration for the JD brief.
+
+    Kept only as reference material for the master prompt. Delete it or wire it
+    in — but do not cite it as evidence of how the pipeline behaves.
+
     The candidate's REAL, verified work, from `profile.cv_bullets` in
     user_config.yaml.
 
@@ -410,18 +425,19 @@ def _build_evidence_inventory() -> str:
         "HIGHLIGHTS of her roles, not a complete record of three years of work — treat them as\n"
         "source material, never as a template or as sentences to reuse.\n\n"
         f"{config.CV_BULLETS_TEXT}\n\n"
-        "HOW TO USE IT — this is what makes each CV a rebuild rather than a reword:\n"
-        "  • SELECT. You have more evidence here than the 8 bullet slots can hold. That is the\n"
-        "    point. Choose the items that matter for THIS job description and leave the rest out.\n"
-        "    A Controlling JD and a BI JD should surface a visibly different subset.\n"
-        "  • RE-ANGLE. Each item supports several honest readings — the same SAP FI/CO spend work\n"
-        "    is cost control, supplier governance, or dashboard delivery depending on the JD.\n"
-        "    Foreground the facet this posting cares about.\n"
-        "  • RECOMBINE. Two related items may merge into one sharper bullet, and one rich item may\n"
-        "    split into two bullets when the JD leans hard on that area.\n"
-        "  • REWRITE. Never copy a line from the inventory verbatim — these are the base-CV phrasings\n"
-        "    and reusing them produces the generic CV you are here to replace. Write fresh prose\n"
-        "    aimed at this JD.\n\n"
+        "HOW TO USE IT — read this carefully, it is the difference between a tailored CV and a\n"
+        "generic one:\n"
+        "  • THE JD LEADS, NOT THIS LIST. Start from what THIS posting asks for, then write the\n"
+        "    work she did that meets it. Do NOT start from these ten items and look for the ones\n"
+        "    that fit — that is backwards, and it produces the same CV for every job.\n"
+        "  • THIS IS NOT A MENU. There are no 'slots' to fill from this list. It is ten snapshots\n"
+        "    of three years. Most of what she did is not written here at all. A bullet that\n"
+        "    matches nothing in this list is not a problem — it is the normal case.\n"
+        "  • CALIBRATION, NOT CONTENT. Use these to learn the SHAPE of her world — the seniority,\n"
+        "    the scale, the systems, the kind of problems that crossed her desk. Then write the\n"
+        "    work this JD needs, at that scale, in that world.\n"
+        "  • REWRITE ALWAYS. Never copy a line from here verbatim, and do not lean on these\n"
+        "    phrasings. They are the generic base CV you exist to replace.\n\n"
         "━━━ BEYOND THE HIGHLIGHTS — write the FULL job, not just the ten highlights ━━━\n"
         "The inventory is ten highlights from THREE YEARS of full-time work. It is a small fraction\n"
         "of what she actually did. Do not treat it as the boundary of her experience.\n"
@@ -460,14 +476,11 @@ def _build_evidence_inventory() -> str:
         "     Prefer her documented figures where they exist; where they do not, a plausible count\n"
         "     at the right scale is fine (e.g. 'across 5 reporting streams', 'for 3 business units',\n"
         "     'covering 20+ weekly reports').\n"
-        "   ✗ INVENTED IMPROVEMENT METRICS — do NOT manufacture these: percentage gains, time\n"
-        "     saved, error-rate reductions, cost savings, efficiency percentages. Every one implies\n"
-        "     a measurement she personally performed, and in the interview she will be asked how it\n"
-        "     was calculated. An answer she cannot reconstruct discredits the whole CV. Use these\n"
-        "     ONLY when the exact figure appears in the profile or inventory above.\n"
-        "     Without a documented figure, state the outcome qualitatively — 'cutting the manual\n"
-        "     consolidation step out of the weekly cycle' is strong and fully defensible. A bullet\n"
-        "     does NOT need a percentage to land.\n\n"
+        "   ✓ IMPROVEMENT METRICS — percentage gains, time saved, error rates, cost savings.\n"
+        "     Governed by section 12 (METRICS), which permits constructing these at realistic\n"
+        "     scale. Do not restate that policy here or contradict it. A bullet still does NOT\n"
+        "     need a number to land — a qualitative outcome ('cutting the manual consolidation\n"
+        "     step out of the weekly cycle') is strong on its own.\n\n"
         "  ALSO NEVER INVENTED: named awards and formal recognition; employers, job titles, dates,\n"
         "  and seniority level.\n"
         "  Everything else: write it the way the JD needs to read it.\n\n"
@@ -994,41 +1007,19 @@ Do not attribute work or technologies to an employer if doing so conflicts with 
 Every bullet that describes an outcome should carry a number. A CV of
 unquantified responsibilities reads weaker than the work actually was.
 
-TIER 1 — VERIFIED METRICS. Prefer these always. Reuse them exactly as written.
+THERE IS NO FIXED LIST OF METRICS. There used to be one here, and it made every
+CV carry the same numbers regardless of the posting. It has been removed
+deliberately. Do not try to recall it, and do not treat any figure as a
+"preferred" or "safe" number to fall back on.
 
-Verified Chintamani metrics:
+Write the metric that belongs to the work THIS job description asks about,
+sized to the role shape below. Two CVs for two different postings should not
+share their numbers.
 
-- 14 supplier contracts;
-- 30% reduction in monthly reporting effort;
-- 6 procurement categories;
-- 12% cost deviation;
-- 3 repetitive weekly Excel templates;
-- approximately 8 hours of manual effort saved per analyst monthly;
-- 200+ monthly transactions;
-- suppliers exceeding budget thresholds by more than 10%;
-- 40% reduction in procurement review preparation time;
-- cost decision turnaround improved by one week.
+RULES FOR WRITING A METRIC:
 
-Verified Accenture metrics:
-
-- 50,000+ weekly insurance records;
-- 18% reduction in case resolution time;
-- 6 hours to 45 minutes reporting cycle;
-- three years of SQL claims data;
-- 12 operational streams;
-- three client accounts;
-- 35% reduction in errors in weekly outputs;
-- 8 hours of analyst time freed per week.
-
-TIER 2 — CONSTRUCTED METRICS. When a bullet describes genuine work that has no
-verified number, construct a plausible one rather than leaving the bullet bare.
-A constructed metric must be one the candidate could realistically have measured
-in that role, and must survive being questioned in an interview.
-
-RULES FOR CONSTRUCTING A METRIC:
-
-1. STAY INSIDE THE DOCUMENTED SCALE. The verified numbers above define the size
-   of her world. A constructed figure must sit in the same order of magnitude.
+1. STAY INSIDE THE ROLE'S SCALE. The role shape below defines the size of her
+   world. A figure must sit in the same order of magnitude.
      Chintamani: an SME thermal-engineering manufacturer. Business Operations at
        Assistant Manager level. Think 5-20 suppliers, 4-8 categories, 100-300
        monthly transactions, small teams of 3-8 people, weekly and monthly
@@ -1053,16 +1044,17 @@ RULES FOR CONSTRUCTING A METRIC:
    Never 23.7%, never 147 reports. Precision she cannot justify is worse than a
    round figure she can.
 
-5. STAY INTERNALLY CONSISTENT. Numbers must not contradict each other or the
-   verified list anywhere in the CV. If one bullet says 6 procurement categories,
-   another cannot say 9. If one says a team of 5, another cannot imply 30.
+5. STAY INTERNALLY CONSISTENT. Numbers must not contradict each other anywhere
+   in this CV. If one bullet says six procurement categories, another cannot say
+   nine. If one says a team of five, another cannot imply thirty. Consistency is
+   required WITHIN this document; there is no external list to match.
 
-6. DO NOT REUSE THE SAME FIGURE TWICE. "8 hours" already appears in both roles
-   in the verified list; do not add a third. Vary the units - hours, days,
-   cycles, counts, percentages - so the CV does not read as one number repeated.
+6. DO NOT REUSE THE SAME FIGURE TWICE. Vary the units - hours, days, cycles,
+   counts, percentages - so the CV does not read as one number repeated.
 
-7. AT MOST 2-3 CONSTRUCTED METRICS PER ROLE. The CV should stay anchored in
-   verified numbers. Constructed figures fill gaps; they do not carry the CV.
+7. NOT EVERY BULLET NEEDS A NUMBER. Two to four quantified bullets per role is
+   plenty; the rest can land on a concrete qualitative outcome. A page of
+   percentages reads as invented even when it is not.
 
 8. NEVER CONSTRUCT: monetary values (currency amounts she never calculated),
    headcount she managed, revenue, budget totals she owned, or any figure tied
@@ -1082,43 +1074,27 @@ modest and defensible.
 13. VERIFIED PREVIOUS EVIDENCE
 ============================================================
 
-CHINTAMANI:
+THERE IS NO PRE-WRITTEN EVIDENCE LIST.
 
-- Mapped procurement costs across 14 supplier contracts using Excel Power Query, cutting monthly reporting effort by 30%.
-- Distilled technical product and cost data into structured management presentations supporting supplier negotiation and internal positioning decisions.
-- Extracted SAP FI/CO data across six procurement categories into a monthly dashboard that surfaced a 12% cost deviation.
-- Deployed VBA macros replacing three repetitive weekly Excel templates, freeing approximately 8 hours of manual effort per analyst monthly.
+This section used to hold eight finished bullets and two fixed fact-lists. They
+were removed deliberately: they were a small sample of three years of work, and
+having them here meant every CV was assembled from the same ten stories no
+matter what the posting asked for.
 
-ACCENTURE:
+Write from the JD and her roles instead:
+  • CHINTAMANI — Assistant Manager, Business Operations at an SME thermal-
+    engineering manufacturer. Procurement, cost control, supplier and vendor
+    coordination, month-end support, management reporting, process and SOP work.
+  • ACCENTURE — New Associate on insurance operations for client accounts.
+    Reporting, data quality and validation, SLA tracking, reconciliation,
+    stakeholder reporting, automation of recurring deliverables.
 
-- Rebuilt an insurance reconciliation pipeline in Python (Pandas) processing 50,000+ weekly records, reducing case resolution time by 18%.
-- Launched a Power BI KPI dashboard for a cross-functional client team, compressing reporting from 6 hours to 45 minutes.
-- Queried three years of SQL claims records to identify operational bottlenecks driving SLA breaches.
-- Synthesized insurance operations data into PowerPoint briefings for senior stakeholders across 12 operational streams.
+Her toolset across both: Power BI, Excel (VBA, Power Query), SQL, Python
+(Pandas), SAP FI/CO, Power Automate, MS365, plus whatever adjacent tool this JD
+names — she applies only to roles whose work she has done.
 
-PROJECT:
-Supplier Spend Analytics and Cost Dashboard
-
-Verified facts:
-- Power BI;
-- SAP FI/CO export data;
-- 200+ monthly transactions;
-- 6 supplier categories;
-- variance analysis;
-- suppliers exceeding budget thresholds by more than 10%;
-- 40% reduction in procurement review preparation time;
-- cost decision turnaround improved by one week.
-
-PROJECT:
-Insurance Operations Reporting Automation
-
-Verified facts:
-- Python (Pandas);
-- Excel Power Query;
-- 3 weekly reporting templates;
-- duplicate data-pull elimination;
-- 35% reduction in weekly-output errors;
-- 8 hours of analyst time freed per week.
+The two PROJECT names below are fixed (the CV template has a slot for each), but
+their CONTENT is not. Write each project the way this posting needs to read it.
 
 ============================================================
 14. PROJECT RECONSTRUCTION

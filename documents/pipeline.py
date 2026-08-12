@@ -834,18 +834,23 @@ async def _extract_jd_keywords(jd: str, tracker=None, job_id: str = "") -> tuple
     if not jd.strip():
         return [], ""
 
-    # The strategist plans WHICH evidence to surface, so it needs the same real
-    # work inventory the CV writer gets — planning a selection against a bare
-    # skeleton (titles + tools) is what produced same-y briefs across JDs.
-    _inventory = config.CV_BULLETS_TEXT.strip()
+    # The strategist plans what the CV should ARGUE for this JD. It gets the
+    # documented highlights as calibration only — framing them as "the evidence
+    # you are selecting from" turned every brief into a pick-from-ten exercise,
+    # which is what made CVs converge on the same procurement/SAP story
+    # regardless of the posting.
+    # `config.CV_BULLETS_TEXT` (the ten documented highlights) is deliberately
+    # NOT passed here. Handing the strategist a fixed list turned every brief
+    # into a pick-from-ten exercise, so CVs converged on the same procurement /
+    # SAP story whatever the posting asked for. The brief is now planned from
+    # the JD against her roles, seniority and toolset — not from a menu.
     _profile_block = config.CV_PROFILE_TEXT[:3000]
-    if _inventory:
-        _profile_block += (
-            "\n\nHER REAL WORK — the evidence you are selecting from (all verified, all\n"
-            "defensible). There is more here than 8 bullet slots can hold: choose what fits\n"
-            "THIS JD, and say in each brief which item and which facet to use.\n"
-            f"{_inventory[:2500]}"
-        )
+    _profile_block += (
+        "\n\nPlan the brief from what THIS JD demands, then describe the work that meets it,\n"
+        "at the seniority and scale of the roles above. You have no list of pre-approved\n"
+        "achievements and you do not need one — she applies only to roles whose work she has\n"
+        "actually done. A brief that could have been written for a different posting has failed."
+    )
 
     prompt = _JD_DEEP_ANALYSIS_PROMPT.format(
         profile=_profile_block,

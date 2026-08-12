@@ -199,17 +199,54 @@ def split_ai_family(keywords: list[str]) -> tuple[list[str], list[str]]:
     return ordinary, ai_family
 
 
+# Compound keywords arrive slash- or "or"-joined when the JD lists alternatives
+# ("Kollaborationstools (z. B. Notion, Asana oder monday.com)" -> the strategist
+# emits the single keyword "Notion / Asana / monday.com"). The prompt requires
+# every keyword VERBATIM, and no natural sentence contains that literal string,
+# so the model skipped the whole item and the evaluator scored all three tools
+# missing. Splitting on the SPACED separator keeps genuine product names with
+# internal slashes intact — "SAP FI/CO" and "MS Office/Excel" have no spaces
+# around theirs and survive untouched.
+_COMPOUND_KW_RE = re.compile(r"\s+(?:/|\||,|\bor\b|\boder\b|\bund\b|&)\s+", re.IGNORECASE)
+
+
+def split_compound_keywords(keywords: list[str]) -> list[str]:
+    """Expand 'Notion / Asana / monday.com' into three separately-placeable terms."""
+    out: list[str] = []
+    seen: set[str] = set()
+    for kw in keywords:
+        if not kw:
+            continue
+        parts = [p.strip() for p in _COMPOUND_KW_RE.split(kw) if p.strip()]
+        # A single long phrase ("reporting and analysis") is not a compound list;
+        # only treat it as one when splitting yields several short, tool-like terms.
+        if len(parts) > 1 and all(len(p.split()) <= 3 for p in parts):
+            candidates = parts
+        else:
+            candidates = [kw.strip()]
+        for c in candidates:
+            if c.lower() not in seen:
+                seen.add(c.lower())
+                out.append(c)
+    return out
+
+
 def filter_ats_banlist(keywords: list[str]) -> list[str]:
     """
     Return `keywords` with ONLY soft-skill/perk noise dropped (case-insensitive):
     Hybrid Work, Team Player, Detail-Oriented, Work-Life Balance, … — these are
     hiring-page boilerplate, not skills, and no recruiter greps a CV for them.
 
+    Compound alternatives are split first (see `split_compound_keywords`), so a
+    JD naming three collaboration tools yields three placeable keywords rather
+    than one unplaceable string.
+
     Everything else — including AI/ML-family terms — is retained and mandatory.
     Full JD keyword coverage is the requirement; `split_ai_family` marks the
     AI/ML subset so the prompt can require exposure-level framing for it.
     """
-    return [k for k in keywords if k and k.strip().lower() not in _ATS_BANLIST]
+    expanded = split_compound_keywords(keywords)
+    return [k for k in expanded if k and k.strip().lower() not in _ATS_BANLIST]
 
 
 # ── Config helpers — turn profile dicts into prompt-ready strings ────
@@ -1105,11 +1142,32 @@ RULES FOR WRITING A METRIC:
    to a named award. Those are the ones a recruiter probes hardest and they
    cannot be reconstructed from memory.
 
-THE TEST FOR ANY CONSTRUCTED NUMBER:
-  Could she, asked cold in an interview, explain roughly where the figure came
-  from - what was counted, over what period, compared to what? If the answer
-  requires data she never had, do not use the number. State the outcome
-  qualitatively instead.
+THE TEST FOR A CONSTRUCTED NUMBER — and it PASSES far more often than it fails.
+
+  Most CV figures describe the shape of a job someone did every day: how many
+  categories, suppliers, reports, templates, streams, stakeholders or business
+  units; how often a cycle ran; how long it took. She lived these for three
+  years. She can answer "how many?" about her own work without a spreadsheet,
+  so THESE FIGURES PASS AUTOMATICALLY. Write them. Do not interrogate them.
+
+  Apply the test only to IMPROVEMENT claims — a percentage gain, hours saved, an
+  error-rate drop. For those, ask: could she explain roughly what was counted,
+  over what period, compared to what? A before/after she watched happen ("the
+  weekly pack used to take a full day, afterwards a couple of hours") passes. A
+  figure needing formal measurement she never ran (company-wide cost savings,
+  revenue impact, ROI) fails.
+
+  NOT KNOWING THE EXACT NUMBER IS NOT A REASON TO OMIT IT. CVs are written from
+  memory and approximation is normal and expected: "around 8", "roughly 20%",
+  "6-8 categories", "about half a day". Reach for the approximation, not the
+  bare sentence.
+
+  GOING QUALITATIVE IS THE EXCEPTION, NOT THE SAFE DEFAULT. It is the right call
+  for genuinely unmeasurable work — documentation, coordination, stakeholder
+  management. It is the WRONG call for anything countable, and a CV that takes
+  it everywhere fails the quantification requirement above and reads as vague.
+  If you have dropped the number from more than one bullet in a role, you are
+  over-applying this test — go back and quantify.
 
 Reconstruction freedom applies to genuine work. Keep the measurement plausible,
 modest and defensible.

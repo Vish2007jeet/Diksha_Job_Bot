@@ -1004,17 +1004,37 @@ Do not attribute work or technologies to an employer if doing so conflicts with 
 12. METRICS
 ============================================================
 
-Every bullet that describes an outcome should carry a number. A CV of
-unquantified responsibilities reads weaker than the work actually was.
+MANDATORY: MOST OUTCOME BULLETS CARRY A NUMBER.
 
-THERE IS NO FIXED LIST OF METRICS. There used to be one here, and it made every
-CV carry the same numbers regardless of the posting. It has been removed
-deliberately. Do not try to recall it, and do not treat any figure as a
-"preferred" or "safe" number to fall back on.
+Target at least FOUR of the five bullets in each role, and at least two of the
+three in each project. A CV of unquantified responsibilities reads weaker than
+the work actually was, and it is the single most common reason a strong CV gets
+passed over. Writing a bullet without a figure is a decision you must justify —
+not a default.
 
-Write the metric that belongs to the work THIS job description asks about,
-sized to the role shape below. Two CVs for two different postings should not
-share their numbers.
+THERE IS NO FIXED LIST TO DRAW FROM. There used to be one here; it made every CV
+carry the same figures regardless of the posting, so it was removed. Do not try
+to recall it and do not treat any number as a "safe" fallback. You CONSTRUCT the
+metric for each bullet, fresh, from the work THIS job description asks about.
+Two CVs for two different postings must not share their numbers.
+
+HOW TO CONSTRUCT ONE — pick the axis the work actually moved:
+  • VOLUME she handled      → "across 7 supplier categories", "for 4 business
+                              units", "covering 30+ weekly reports"
+  • TIME a cycle took       → "from three days to one", "cut the monthly close
+                              prep from two days to half a day"
+  • FREQUENCY / CADENCE     → "replacing 5 recurring manual reports",
+                              "across 12 monthly reporting cycles"
+  • EFFORT removed          → "freeing roughly 6 hours a week", "removing two
+                              manual handoffs from the approval chain"
+  • ACCURACY / RELIABILITY  → "cutting rework on weekly outputs by about 20%",
+                              "eliminating duplicate data pulls across 3 feeds"
+  • REACH / STAKEHOLDERS    → "used weekly by 15 stakeholders across finance and
+                              operations", "serving 3 client accounts"
+
+These are FORMS, not content. Never copy these example figures — they are
+illustrations of shape. Derive the actual number from the work in the bullet,
+sized by the role shape below.
 
 RULES FOR WRITING A METRIC:
 
@@ -1031,9 +1051,9 @@ RULES FOR WRITING A METRIC:
    department-sized teams, no multi-country programmes.
 
 2. KEEP IMPROVEMENTS MODEST AND BELIEVABLE. Real process improvements by one
-   analyst land in the 10-40% range. Anything at or above 50% reads as invented
-   unless it is one of the verified figures above. Prefer 15%, 20%, 25%, 30%.
-   Never 87%, never "10x", never "eliminated entirely".
+   analyst land in the 10-40% range. Anything at or above 50% reads as invented.
+   Prefer 15%, 20%, 25%, 30%. Never 87%, never "10x", never "eliminated
+   entirely".
 
 3. PREFER BASELINE-TO-RESULT OVER A BARE PERCENTAGE. "From two days to half a
    day" is more credible and more memorable than "60% faster", because it shows
@@ -1052,9 +1072,11 @@ RULES FOR WRITING A METRIC:
 6. DO NOT REUSE THE SAME FIGURE TWICE. Vary the units - hours, days, cycles,
    counts, percentages - so the CV does not read as one number repeated.
 
-7. NOT EVERY BULLET NEEDS A NUMBER. Two to four quantified bullets per role is
-   plenty; the rest can land on a concrete qualitative outcome. A page of
-   percentages reads as invented even when it is not.
+7. VARY THE KIND OF NUMBER, DO NOT DROP IT. A role whose bullets are five
+   percentages reads as invented. The fix is to change the AXIS - one volume,
+   one time-to-complete, one effort-saved, one reach - not to leave bullets
+   bare. At most one unquantified bullet per role, and only where the work is
+   genuinely qualitative (documentation, coordination, stakeholder work).
 
 8. NEVER CONSTRUCT: monetary values (currency amounts she never calculated),
    headcount she managed, revenue, budget totals she owned, or any figure tied

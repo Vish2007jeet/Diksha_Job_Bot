@@ -332,6 +332,23 @@ def _build_feasibility_law() -> str:
         "    Those imply a measurement she performed and must come from the inventory or profile.",
     ]
 
+    lines.append(_build_tool_tier())
+
+    return "\n".join(lines)
+
+
+def _build_tool_tier() -> str:
+    """
+    PRIMARY / ADJACENT tool policy — the licence to write her as a working user
+    of a tool the JD centres.
+
+    Factored out of `_build_shared_law()` because the CV prompt does NOT include
+    the shared law (the user-authored master prompt owns CV generation), so the
+    CV writer had no tool policy at all. A JD centred on Notion/Asana therefore
+    produced a CV full of Power BI and an ATS of 57 — the JD's own tools never
+    appeared. Both prompts now inject this block.
+    """
+    lines: List[str] = []
     if config.PRIMARY_TOOLS:
         lines += [
             "",
@@ -351,8 +368,13 @@ def _build_feasibility_law() -> str:
             "  mentions only in passing.",
             "  Still NEVER on an adjacent tool: 'architected', 'owned end-to-end', 'led the",
             "  migration' — ownership of the platform itself is the line, not use of it.",
+            "",
+            "  A TOOL THE JD NAMES AND YOU OMIT IS A FAILED CV. If the posting centres tools",
+            "  outside her primary stack (project-management, ticketing, CMS, collaboration),",
+            "  those are the tools the CV must foreground — not her BI stack. Writing 'Power BI'",
+            "  five times for a role that runs on Notion and Asana scores badly and reads as a",
+            "  CV written for a different job.",
         ]
-
     return "\n".join(lines)
 
 
@@ -1536,6 +1558,12 @@ def _build_cv_system() -> str:
     """
     return (
         _CV_MASTER_PROMPT
+        + "\n\n"
+        # The CV prompt does not include the shared law (the master prompt owns
+        # CV generation), so the tool tier has to be injected on its own —
+        # without it the writer has no licence to claim a JD's tools and falls
+        # back on her BI stack regardless of what the posting runs on.
+        + _build_tool_tier()
         + "\n\n"
         + _BANNED_WORDS_LINE
         + "\n\n"

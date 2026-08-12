@@ -413,6 +413,9 @@ _PLACEHOLDER_RE = re.compile(
 
 
 _DANGLING_END_RE = re.compile(r"\b(the|a|an|and|of|to|for|with|in|on|at|by)\s*$", re.IGNORECASE)
+# A paragraph ending in any of these is a finished sentence. Closing quotes and
+# brackets count — "...exactly what the role needs." and (…) both end cleanly.
+_TERMINAL_PUNCT_RE = re.compile(r"[.!?…\"”')\]]$")
 _BANNED_OPENERS_RE = re.compile(
     r"^\s*(.{0,30}sits\s+at\s+the\s+(exact\s+)?intersection|"
     r"few\s+companies\s+operate|"
@@ -424,14 +427,35 @@ _BANNED_OPENERS_RE = re.compile(
 
 def _check_paragraph_endings(cl_data: dict) -> List[str]:
     """
-    Catch paragraphs that end mid-sentence with a dangling article ('The ', 'A ', 'and ').
-    These are nearly always template-engine or generation truncations and look unprofessional.
+    Catch paragraphs cut off mid-sentence — generation or template truncations.
+
+    The signal is MISSING TERMINAL PUNCTUATION, not the identity of the last
+    word. The previous version stripped the trailing period and then flagged any
+    paragraph whose last word was a preposition, which false-positived on every
+    correct sentence that ends in one:
+
+        "...and that's the work I'm drawn to."          -> flagged, but fine
+        "...what meaningful sustainability media
+           depends on."                                 -> flagged, but fine
+
+    Those are ordinary English. A genuinely truncated paragraph has no closing
+    punctuation at all ("...directly relevant to market positioning. The"), so
+    that is what we test. The dangling-word check is kept only to describe the
+    failure in the feedback message.
     """
     bad: List[str] = []
     for k in ("para1", "para2", "para3", "para4", "para5"):
-        text = (cl_data.get(k) or "").rstrip().rstrip(".")
-        if _DANGLING_END_RE.search(text):
-            bad.append(f"{k} ends with a dangling article: ...{text[-40:]!r}")
+        text = (cl_data.get(k) or "").rstrip()
+        if not text:
+            continue
+        if _TERMINAL_PUNCT_RE.search(text):
+            continue  # complete sentence — regardless of its final word
+        detail = (
+            "ends with a dangling article"
+            if _DANGLING_END_RE.search(text)
+            else "is cut off mid-sentence"
+        )
+        bad.append(f"{k} {detail} (no closing punctuation): ...{text[-40:]!r}")
     return bad
 
 

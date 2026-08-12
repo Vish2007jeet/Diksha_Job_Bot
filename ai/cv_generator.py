@@ -2017,6 +2017,12 @@ class CVGenerator:
             self.client.messages.create,
             model=self.model,
             max_tokens=4500,
+            # Opus 5 (and Sonnet 5) think by DEFAULT when this is omitted, and
+            # max_tokens caps thinking + response together — so an omitted
+            # `thinking` silently eats the JSON budget and truncates output.
+            # Accepted on Sonnet 4.6 and Opus 4.8 too, so this is model-agnostic.
+            # Disabling is only rejected above `high` effort; we don't set effort.
+            thinking={"type": "disabled"},
             system=[{"type": "text", "text": get_prompt("cv_system"), "cache_control": {"type": "ephemeral"}}],
             messages=[{"role": "user", "content": prompt}],
         )
@@ -2117,6 +2123,9 @@ class CVGenerator:
             self.client.messages.create,
             model=self.model,
             max_tokens=2500,
+            # See the CV call above — thinking is on by default on Opus 5, and
+            # shares this 2500-token budget with the CL JSON if left unset.
+            thinking={"type": "disabled"},
             system=[{"type": "text", "text": get_prompt("cl_system"), "cache_control": {"type": "ephemeral"}}],
             messages=[{"role": "user", "content": prompt}],
         )

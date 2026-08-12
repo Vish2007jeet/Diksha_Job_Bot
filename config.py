@@ -38,7 +38,7 @@ ANTHROPIC_API_KEY: str = _yaml("api_keys", "anthropic_api_key", "ANTHROPIC_API_K
 CLAUDE_MODEL: str = _yaml("settings", "claude_model", "CLAUDE_MODEL", "claude-sonnet-4-6")
 # Model used for a "dream application" (/apply opus) — CV/CL generation only.
 # Overridable in user_config.yaml (settings.dream_model) if the ID changes.
-DREAM_MODEL: str = _yaml("settings", "dream_model", "DREAM_MODEL", "claude-opus-4-8")
+DREAM_MODEL: str = _yaml("settings", "dream_model", "DREAM_MODEL", "claude-opus-5")
 MIN_QUALITY_SCORE: int = int(_yaml("settings", "min_quality_score", "MIN_QUALITY_SCORE", 90))
 SCAN_TIMEOUT_HOURS: int = int(_yaml("settings", "scan_timeout_hours", "SCAN_TIMEOUT_HOURS", 2))
 JD_FETCH_CONCURRENCY: int = int(_yaml("settings", "jd_fetch_concurrency", "JD_FETCH_CONCURRENCY", 6))

@@ -597,17 +597,22 @@ def _check_cl_closing_bans(cl_data: dict) -> List[str]:
 def _better_eval(candidate, current_best) -> bool:
     """
     Ranking for retry-loop 'keep best so far':
-      1. No banned words wins over any number of banned words.
-      2. Within the same banned-words bucket, higher ATS wins.
-      3. Tie-break: equal ATS → keep candidate (later attempt benefits from prior feedback).
+      1. Higher ATS wins. Banned words are NOT a score penalty.
+      2. Tie-break on equal ATS: the candidate without banned words wins.
+      3. Still tied → keep candidate (a later attempt has more feedback behind it).
+
+    Banned words used to dominate this ranking outright, so a clean CV scoring 60
+    beat a flagged one scoring 95 — a stylistic nit outweighing the whole keyword
+    match. They remain detected, logged and fed back as fix-up feedback; they
+    just no longer override the score.
     """
+    if candidate.ats_score != current_best.ats_score:
+        return candidate.ats_score > current_best.ats_score
     cand_clean = not candidate.banned_words_found
     best_clean = not current_best.banned_words_found
-    if cand_clean and not best_clean:
-        return True
-    if not cand_clean and best_clean:
-        return False
-    return candidate.ats_score >= current_best.ats_score
+    if cand_clean != best_clean:
+        return cand_clean
+    return True
 
 
 def check_cl_quality(cl_text: str, company: str) -> List[str]:
@@ -1361,10 +1366,10 @@ class DocumentPipeline:
                     feedback = (pre_fail_feedback + ("\n\n" + feedback if feedback else ""))[:_FEEDBACK_MAX_CHARS]
                 continue
 
-            passes = (
-                best_eval.ats_score >= config.ATS_SCORE_TARGET
-                and not best_eval.banned_words_found
-            )
+            # ATS coverage alone decides pass/fail. A banned word is a wording nit
+            # the humanizer usually clears; it is not worth failing an otherwise
+            # strong CV over, and it is still reported in the feedback block.
+            passes = best_eval.ats_score >= config.ATS_SCORE_TARGET
             if passes or attempt == _MAX_RETRIES:
                 break
 
@@ -1545,10 +1550,8 @@ class DocumentPipeline:
                     feedback = struct_fail_feedback[:_FEEDBACK_MAX_CHARS]
                 continue
 
-            passes = (
-                best_eval.ats_score >= config.CL_ATS_SCORE_TARGET
-                and not best_eval.banned_words_found
-            )
+            # Same as the CV gate: ATS coverage decides, banned words are advisory.
+            passes = best_eval.ats_score >= config.CL_ATS_SCORE_TARGET
             if passes or attempt == _MAX_RETRIES:
                 break
 

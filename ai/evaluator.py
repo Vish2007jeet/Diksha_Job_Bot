@@ -9,6 +9,7 @@ import asyncio
 import json
 import re
 from dataclasses import dataclass, field
+from functools import lru_cache
 from typing import List
 
 import anthropic
@@ -251,6 +252,53 @@ def cl_dict_to_text(data: dict) -> str:
     return "\n\n".join(p for p in paragraphs if p)
 
 
+@lru_cache(maxsize=1)
+def static_cv_sections() -> str:
+    """
+    The FIXED parts of the CV template — Software Knowledge, Education,
+    Languages, Achievements, Interests — that the model never writes.
+
+    These are in the exported PDF, so a real employer's ATS reads them, but
+    `cv_dict_to_text` covers only model-written fields. That mismatch made the
+    scorer report keywords as missing when they were plainly on the page:
+    'PowerPoint', 'Excel', 'German A2 / English C1' and 'business
+    administration' all live in these fixed sections, and all were scored as
+    gaps. The result was a score that systematically under-reported coverage.
+
+    Used for ATS scoring ONLY. Deliberately NOT added to `cv_dict_to_text`,
+    because that text also feeds the banned-word scanner — flagging a banned
+    phrase inside frozen template text would fail a document the generator has
+    no way to fix.
+
+    Fails open: the template is user-supplied and not in the repo, so a missing
+    or unreadable file yields '' and scoring simply behaves as before.
+    """
+    try:
+        from docx import Document as _Docx
+        from documents.template_engine import CV_SECTIONS
+
+        writable = {i for idx in CV_SECTIONS.values() for i in idx}
+        doc = _Docx(str(config.CV_TEMPLATE_PATH))
+        fixed = [
+            p.text.strip()
+            for i, p in enumerate(doc.paragraphs)
+            if i not in writable and p.text.strip()
+        ]
+        if not fixed:
+            return ""
+        return "OTHER CV SECTIONS (fixed template — skills, education, languages, awards):\n" + "\n".join(fixed)
+    except Exception as exc:  # noqa: BLE001 - scoring must never crash on this
+        logger.debug(f"static_cv_sections unavailable ({exc}) — ATS scored on generated text only")
+        return ""
+
+
+def cv_text_for_ats(data: dict) -> str:
+    """Everything an employer's ATS would parse: generated content + fixed sections."""
+    static = static_cv_sections()
+    body = cv_dict_to_text(data)
+    return f"{body}\n\n{static}" if static else body
+
+
 # ── Evaluator class ────────────────────────────────────────────────
 
 class DocumentEvaluator:
@@ -303,12 +351,17 @@ class DocumentEvaluator:
             return {"ats_score": 100, "missing_keywords": []}
 
     async def evaluate_cv(self, job_id: str, jd: str, cv_data: dict) -> EvalResult:
+        # Two different texts on purpose: the banned-word scan sees only what the
+        # model wrote (it must never fail on frozen template wording), while ATS
+        # scoring sees what an employer's parser sees — generated content plus the
+        # fixed skills/education/languages sections.
         cv_text = cv_dict_to_text(cv_data)
+        ats_text = cv_text_for_ats(cv_data)
         if not jd or not jd.strip():
             logger.warning(f"[CV CHECK] Empty JD for {job_id} — skipping ATS call, returning default pass")
             banned = check_banned_words(cv_text)
             return EvalResult(ats_score=100, missing_keywords=[], banned_words_found=banned)
-        prompt  = _CV_ATS_PROMPT.format(jd=jd[:5000], cv_text=cv_text)
+        prompt  = _CV_ATS_PROMPT.format(jd=jd[:5000], cv_text=ats_text)
         data    = await self._ats_call(prompt, job_id, "cv_ats")
         banned  = check_banned_words(cv_text)
         result  = EvalResult(

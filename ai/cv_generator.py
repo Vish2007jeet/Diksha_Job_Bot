@@ -24,10 +24,11 @@ Prompts can be overridden per-key via the /setprompt bot command
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import re
 from pathlib import Path
-from typing import Dict
+from typing import Dict, List, Tuple
 
 import anthropic
 
@@ -1582,6 +1583,87 @@ def _build_cv_system() -> str:
     )
 
 
+def _project_terms(proj: dict) -> List[str]:
+    """All routing terms for a project — English list plus German list."""
+    terms = list(proj.get("lead_when_jd_matches") or [])
+    terms += list(proj.get("lead_when_jd_matches_de") or [])
+    return [str(t).strip().lower() for t in terms if str(t).strip()]
+
+
+def _score_jd(jd_lower: str, terms: List[str]) -> int:
+    """Count whole-word/phrase hits for a project's routing terms in the JD."""
+    score = 0
+    for t in terms:
+        # Phrases ('power bi') need plain containment; single words need a
+        # boundary so 'cost' does not match 'costume' and 'sql' not 'mysqld'.
+        if " " in t:
+            score += jd_lower.count(t)
+        else:
+            score += len(re.findall(rf"\b{re.escape(t)}\w{{0,3}}\b", jd_lower))
+    return score
+
+
+def choose_lead_project(jd_text: str, job_id: str = "") -> Tuple[str, str, str]:
+    """
+    Decide which project leads the CL deep-dive paragraph.
+
+    Returns (lead_key, other_key, rationale).
+
+    Routing scores the JD against both projects' English AND German term lists.
+    When the JD gives no usable signal — which was true for the majority of
+    German Werkstudent JDs and silently defaulted every one of them to project1
+    — the choice alternates deterministically on job_id instead. Same job always
+    routes the same way; across applications the corpus splits evenly rather
+    than leading with the same project 90% of the time.
+    """
+    projects = config.PROFILE_PROJECTS or {}
+    p1 = projects.get("project1", {}) or {}
+    p2 = projects.get("project2", {}) or {}
+    jd_lower = (jd_text or "").lower()
+
+    s1 = _score_jd(jd_lower, _project_terms(p1))
+    s2 = _score_jd(jd_lower, _project_terms(p2))
+
+    if s1 > s2:
+        return "project1", "project2", f"JD matches project1 terms more strongly ({s1} vs {s2})"
+    if s2 > s1:
+        return "project2", "project1", f"JD matches project2 terms more strongly ({s2} vs {s1})"
+
+    # Tie (very often 0-0). Alternate on a stable hash of the job id.
+    bucket = int(hashlib.sha1((job_id or jd_lower[:200]).encode("utf-8")).hexdigest(), 16) % 2
+    lead = "project1" if bucket == 0 else "project2"
+    other = "project2" if lead == "project1" else "project1"
+    return lead, other, f"no JD signal ({s1} vs {s2}) — alternating by job id to avoid always leading with the same project"
+
+
+def build_project_lead_block(jd_text: str, job_id: str = "") -> str:
+    """Prompt block naming the lead project and supplying its substance."""
+    projects = config.PROFILE_PROJECTS or {}
+    lead_key, other_key, rationale = choose_lead_project(jd_text, job_id)
+    lead, other = projects.get(lead_key, {}) or {}, projects.get(other_key, {}) or {}
+    lead_name = lead.get("name", lead_key)
+    other_name = other.get("name", other_key)
+    lead_content = (lead.get("content") or "").strip()
+    other_content = (other.get("content") or "").strip()
+
+    block = (
+        f"\n\n{'='*50}\n"
+        "PARA 3 PROJECT ROUTING — this decision is already made, follow it exactly.\n"
+        f"  LEAD (go deep, ~55 words): {lead_name}\n"
+        f"  NOD  (one sentence, ~15 words): {other_name}\n"
+        f"  Why: {rationale}\n"
+    )
+    if lead_content:
+        block += f"\nSubstance for the LEAD project — use these facts, do not invent others:\n  {lead_content}\n"
+    if other_content:
+        block += f"\nThe NOD sentence must carry one concrete number or outcome from:\n  {other_content}\n"
+    block += (
+        "\nDo NOT re-decide which project leads based on your own reading of the JD.\n"
+        f"{'='*50}\n"
+    )
+    return block
+
+
 def _build_cl_system() -> str:
     # ── Interpolated config values ────
     edu_current   = config.PROFILE_EDUCATION.get("current", {}) or {}
@@ -1618,10 +1700,11 @@ def _build_cl_system() -> str:
         "  - Include at least 2 believable quantified metrics.\n"
         "  - The Para 1 opening story is OFF LIMITS here — use different angles.\n\n"
         "Para 3 — PROJECT DEEP-DIVE (~70 words):\n"
-        "  - PICK ONE project and go DEEP (~55 words on it; ~15-word 1-sentence nod to the other):\n"
-        f"      * JD emphasises {project2_when or 'reporting / automation / Python / SQL'} → lead with **{project2_name}**.\n"
-        f"      * JD emphasises {project1_when or 'procurement / cost / PMO / governance / dashboards'} → lead with **{project1_name}**.\n"
-        "      * If the JD covers both, pick whichever scored higher in keyword overlap.\n"
+        "  - Go DEEP on ONE project (~55 words) with a ~15-word 1-sentence nod to the other.\n"
+        "  - WHICH project leads is NOT your decision. The user prompt contains a\n"
+        "    'PARA 3 PROJECT ROUTING' block naming the LEAD and the NOD, with the facts\n"
+        "    to use. Follow it exactly, even if your own reading of the JD disagrees.\n"
+        f"    (The two projects are **{project1_name}** and **{project2_name}**.)\n"
         "  - Both project names appear in **bold**, but the depth is asymmetric.\n"
         "  - MANDATORY: the 1-sentence nod to the SECOND project MUST include either a number\n"
         "    (percentage, hours saved, records processed, weekly cycles) or a named concrete\n"
@@ -1975,6 +2058,10 @@ class CVGenerator:
             description=job.description[:4000] if job.description else "Not provided.",
             notes=application_notes or "None",
         )
+        # Para-3 project routing is decided in Python, not by the model — left to
+        # its own reading it led with the same project in 90% of letters.
+        prompt = build_project_lead_block(job.description or "", job.job_id) + "\n" + prompt
+
         if jd_focus:
             # Strategic brief goes FIRST — Claude reads the writing brief before the JD
             prompt = f"{jd_focus}\n\n" + prompt

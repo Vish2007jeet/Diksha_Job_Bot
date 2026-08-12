@@ -476,6 +476,80 @@ _CL_LANGUAGE_NARRATIVE_RE = re.compile(
 )
 
 
+# ── Deterministic compliant closing ───────────────────────────
+# The three closing bans above are all "delete this" rules, so they cannot be
+# repaired by deletion alone — stripping every offending sentence from a typical
+# closing removes the whole paragraph. Instead para5 is rebuilt from profile
+# facts. Fixed wording across applications is the accepted trade: the closing
+# carries no persuasion, only availability, and a compliant boring closing beats
+# a non-compliant interesting one.
+#
+# Override with `profile.cl_closing` in user_config.yaml to change the wording.
+
+_CL_CLOSING_FALLBACK = (
+    "I am available as a Werkstudent for 20 hours per week and can start immediately."
+)
+
+
+def _german_is_relevant(job, jd: str) -> bool:
+    """True when the JD/location matches profile.languages.german.trigger_in_cl_when."""
+    german = (config.PROFILE_LANGUAGES or {}).get("german") or {}
+    triggers = german.get("trigger_in_cl_when") or []
+    if not triggers:
+        return False
+    haystack = f"{getattr(job, 'location', '') or ''} {getattr(job, 'company', '') or ''} {jd[:4000]}".lower()
+    for t in triggers:
+        t = str(t).strip().lower()
+        if not t:
+            continue
+        # 'German JD' is a language marker, not a substring to match literally.
+        if t == "german jd":
+            if re.search(r"\b(wir suchen|deine aufgaben|dein profil|stellenbeschreibung|"
+                         r"werkstudent\w*|aufgaben|kenntnisse)\b", jd[:4000], re.IGNORECASE):
+                return True
+            continue
+        if t in haystack:
+            return True
+    return False
+
+
+def _build_compliant_closing(job, jd: str) -> str:
+    """
+    Build a closing that satisfies all three bans by construction:
+    no relocation/commuting, no meeting request, no language-progress narrative.
+    """
+    override = (getattr(config, "CL_CLOSING_TEXT", "") or "").strip()
+    base = override or _CL_CLOSING_FALLBACK
+
+    if _german_is_relevant(job, jd):
+        german = (config.PROFILE_LANGUAGES or {}).get("german") or {}
+        level = str(german.get("level") or german.get("status") or "").strip()
+        # Plain statement of level only — never a progress story.
+        if level and not re.search(r"\bgerman\b", base, re.IGNORECASE):
+            base = f"{base} My German is at {level}."
+    return base
+
+
+def _repair_cl_closing(cl_data: dict, job, jd: str) -> List[str]:
+    """
+    Replace para5 with a deterministically compliant closing when it trips any
+    ban. Returns a list of human-readable notes describing what was changed.
+    Paragraphs 1-4 are left alone — they carry the letter's argument, and this
+    function is deliberately not a general-purpose text surgeon.
+    """
+    para5 = (cl_data.get("para5") or "").strip()
+    if not para5:
+        return []
+    tripped = _check_cl_closing_bans({"para5": para5})
+    if not tripped:
+        return []
+    replacement = _build_compliant_closing(job, jd)
+    cl_data["para5"] = replacement
+    return [
+        f"para5 rewritten to a compliant closing ({len(tripped)} ban(s) tripped): {replacement!r}"
+    ]
+
+
 def _check_cl_closing_bans(cl_data: dict) -> List[str]:
     """Return issues for banned closing content (empty = clean)."""
     text = "\n".join((cl_data.get(f"para{i}") or "") for i in range(1, 6))
@@ -1338,6 +1412,12 @@ class DocumentPipeline:
 
         content, ev = await self._humanize_and_pick_best_cl(job.job_id, jd, raw)
 
+        # Rebuild the closing deterministically if it trips a ban. Runs before
+        # the structural check so a banned closing — which the model produces
+        # almost every time — is repaired rather than failing the candidate.
+        for note in _repair_cl_closing(content, job, jd):
+            logger.info(f"CL closing repaired: {note}")
+
         structural_issues = self._cl_structural_issues(content)
         if structural_issues:
             for issue in structural_issues:
@@ -1350,7 +1430,11 @@ class DocumentPipeline:
                 "  - Para 1 MUST open with a concrete moment from YOUR work — banned: 'X sits at the intersection',\n"
                 "    'Few companies operate at the scale', 'I am writing/excited/thrilled', 'X is a leader in'.\n"
             )
-            return ("struct_fail", msg, None)
+            # Carry the content + eval alongside the feedback. A structurally
+            # imperfect letter is still far better than no letter at all, and
+            # with _MAX_RETRIES = 0 there is no second chance to produce one —
+            # so the caller needs something it can fall back to.
+            return ("struct_fail", (msg, content, ev), None)
 
         return ("ok", content, ev)
 
@@ -1363,6 +1447,7 @@ class DocumentPipeline:
         Retries fire on ATS shortfall or banned-word hits.
         """
         best_content, best_eval = None, None
+        struct_fallback = None   # (content, eval) of a structurally-flawed candidate
         feedback = ""
         n_first = max(1, getattr(config, "CL_BEST_OF_N", 1))
 
@@ -1391,8 +1476,13 @@ class DocumentPipeline:
                     )
                     continue
                 if status == "struct_fail":
+                    fb_msg, fb_content, fb_eval = payload
                     if struct_fail_feedback is None:
-                        struct_fail_feedback = payload
+                        struct_fail_feedback = fb_msg
+                    # Remember the first structurally-flawed candidate so the
+                    # application can still ship if nothing cleaner appears.
+                    if struct_fallback is None:
+                        struct_fallback = (fb_content, fb_eval)
                     continue
                 if best_eval is None or _better_eval(ev, best_eval):
                     best_content, best_eval = payload, ev
@@ -1404,6 +1494,18 @@ class DocumentPipeline:
                 if attempt == _MAX_RETRIES:
                     if best_eval is not None:
                         break  # ship the best from a prior attempt
+                    if struct_fallback is not None:
+                        # Every candidate had a structural flaw and there are no
+                        # retries left. Ship it rather than failing the whole
+                        # application — the flaws are cosmetic, a missing CV+CL
+                        # is total. Logged loudly so it is never silent.
+                        best_content, best_eval = struct_fallback
+                        logger.error(
+                            f"CL SHIPPING WITH STRUCTURAL ISSUES for {job.title} @ {job.company} "
+                            f"— no clean candidate and no retries left (_MAX_RETRIES={_MAX_RETRIES}). "
+                            f"Issues:\n{struct_fail_feedback or '(none recorded)'}"
+                        )
+                        break
                     if last_error is not None:
                         raise last_error
                     raise RuntimeError("CL generation produced no evaluable candidates")
@@ -1428,10 +1530,13 @@ class DocumentPipeline:
             )
             feedback = attempt_best_eval.feedback_block()[:_FEEDBACK_MAX_CHARS]
 
-        logger.info(
-            f"CL final: ATS={best_eval.ats_score} | missing={len(best_eval.missing_keywords)} | "
-            f"banned={best_eval.banned_words_found or 'none'}"
-        )
+        if best_eval is not None:
+            logger.info(
+                f"CL final: ATS={best_eval.ats_score} | missing={len(best_eval.missing_keywords)} | "
+                f"banned={best_eval.banned_words_found or 'none'}"
+            )
+        else:
+            logger.warning("CL final: shipping without an evaluation result")
         return best_content, best_eval
 
     def _check_templates(self) -> None:

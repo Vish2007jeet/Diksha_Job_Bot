@@ -87,6 +87,12 @@ PROFILE_PROJECTS:   dict = _profile.get("projects",   {}) or {}
 PROFILE_EDUCATION:  dict = _profile.get("education",  {}) or {}
 PROFILE_LANGUAGES:  dict = _profile.get("languages",  {}) or {}
 
+# Optional override for the deterministic CL closing paragraph. Empty = use the
+# built-in default in documents/pipeline.py. Must not mention relocation,
+# commuting, meeting requests, or German-progress narrative — those are banned
+# and the closing is rebuilt precisely to avoid them.
+CL_CLOSING_TEXT: str = _profile.get("cl_closing") or ""
+
 AI_TIMELINE_GATE: str = _profile.get("ai_tool_timeline_gate") or "2024-06"
 AI_TOOL_TERMS: List[str] = _profile.get("ai_tool_terms") or []
 PRIMARY_TOOLS: List[str] = _profile.get("primary_tools") or []

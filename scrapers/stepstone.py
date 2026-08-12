@@ -158,31 +158,44 @@ class StepstoneScraper(BaseScraper):
         return jobs
 
     async def get_job_details(self, job: JobListing) -> JobListing:
-        """Fetch full job description + exact posted date from detail page JSON-LD."""
+        """
+        Fetch full job description + exact posted date from detail page JSON-LD.
+        Re-applies the 3-day filter here: the list-page timeago text is bumped
+        when Stepstone re-promotes an old ad, so the JSON-LD datePosted is the
+        only trustworthy date. Too old → relevance_score = -1 sentinel, which
+        the orchestrator drops.
+        """
         try:
             await self._random_delay(1.0, 3.0)
             resp = self.session.get(job.url, timeout=15)
             resp.raise_for_status()
             soup = self._soup(resp)
 
+            cutoff = datetime.now() - timedelta(days=MAX_AGE_DAYS)
+
             # JSON-LD on the detail page has full description + exact datePosted
             for script in soup.find_all("script", type="application/ld+json"):
                 try:
                     data = json.loads(script.string)
                     if isinstance(data, dict) and data.get("@type") == "JobPosting":
+                        # Exact date from JSON-LD — checked before anything else
+                        posted_str = data.get("datePosted", "")
+                        if posted_str:
+                            try:
+                                posted_date = datetime.fromisoformat(posted_str[:10])
+                                job.posted_date = posted_date
+                                if posted_date < cutoff:
+                                    self._log(f"  Skipping (too old: {posted_str[:10]}): {job.title}")
+                                    job.relevance_score = -1.0
+                                    return job
+                            except ValueError:
+                                pass
+
                         desc = clean_text(
                             BeautifulSoup(data.get("description", ""), "lxml").get_text()
                         )
                         if desc:
                             job.description = desc
-
-                        # Exact date from JSON-LD
-                        posted_str = data.get("datePosted", "")
-                        if posted_str:
-                            try:
-                                job.posted_date = datetime.fromisoformat(posted_str[:10])
-                            except ValueError:
-                                pass
 
                         # Salary
                         if "baseSalary" in data:

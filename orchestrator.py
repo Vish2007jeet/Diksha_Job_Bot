@@ -71,6 +71,26 @@ NOTIFY_BATCH_SIZE   = 10  # send cards to Telegram after this many relevant jobs
 _MAX_AGE_DAYS       = 3   # fallback lookback for first-ever scan
 
 
+def _naive(dt):
+    """Strip tzinfo so tz-aware dates (Workday) compare against datetime.now()."""
+    if dt is not None and dt.tzinfo is not None:
+        return dt.replace(tzinfo=None)
+    return dt
+
+
+def _older_date(candidate, current) -> bool:
+    """True if `candidate` is a known date strictly older than `current`.
+
+    An unknown (None) candidate never wins; an unknown current always loses to
+    a known candidate, so any real date beats "no date at all".
+    """
+    if candidate is None:
+        return False
+    if current is None:
+        return True
+    return _naive(candidate) < _naive(current)
+
+
 class JobOrchestrator:
     def __init__(self):
         self.tracker = JobTracker()
@@ -270,7 +290,13 @@ class JobOrchestrator:
             # different company name variants (e.g. "BMW Group" vs "BMW Motorrad").
             # Title alone is the reliable signal within a single scan run.
             # Cross-scan company+title dedup is handled by is_duplicate_title above.
-            seen_titles_this_scan: set[str] = set()
+            # Maps normalized title → the job kept for that title. When a dupe is
+            # found we discard the listing but NOT its date: sources differ in how
+            # honest their posted_date is (LinkedIn shows the repost date and has
+            # no truer date available; Stepstone/Xing expose the real datePosted
+            # in JSON-LD). Keeping the OLDEST date across all copies means a
+            # re-promoted ad is judged on its true age by the age gate below.
+            seen_titles_this_scan: dict[str, object] = {}
 
             new_jobs = []
             for j in all_scraped:
@@ -280,10 +306,17 @@ class JobOrchestrator:
                     logger.debug(f"Cross-scan dupe skipped: {j.title} @ {j.company}")
                     continue
                 nt = _norm(j.title)
-                if nt in seen_titles_this_scan:
+                kept = seen_titles_this_scan.get(nt)
+                if kept is not None:
+                    if _older_date(j.posted_date, kept.posted_date):
+                        logger.debug(
+                            f"Dupe carried older date {j.posted_date} from {j.source} "
+                            f"onto kept {kept.source} listing: {kept.title}"
+                        )
+                        kept.posted_date = j.posted_date
                     logger.debug(f"Within-scan dupe skipped: {j.title} @ {j.company}")
                     continue
-                seen_titles_this_scan.add(nt)
+                seen_titles_this_scan[nt] = j
                 if j.description and not j.deadline:
                     j.deadline = _parse_deadline(j.description)
                 new_jobs.append(j)
@@ -344,6 +377,27 @@ class JobOrchestrator:
 
             # Filter out jobs marked as too old (sentinel -1.0)
             new_jobs = [j for j in new_jobs if j.relevance_score != -1.0]
+
+            # Global age gate — backstop for every source, including ones with no
+            # date filter of their own (workday, personio, company). Jobs whose
+            # posted_date is unknown pass through; a known date older than
+            # _MAX_AGE_DAYS is always dropped.
+            _age_cutoff = datetime.now() - timedelta(days=_MAX_AGE_DAYS)
+
+            _aged_out = [
+                j for j in new_jobs
+                if j.posted_date is not None and _naive(j.posted_date) < _age_cutoff
+            ]
+            if _aged_out:
+                by_source: dict[str, int] = {}
+                for j in _aged_out:
+                    by_source[j.source] = by_source.get(j.source, 0) + 1
+                logger.info(
+                    f"Age gate: dropped {len(_aged_out)} jobs older than "
+                    f"{_MAX_AGE_DAYS} days — {by_source}"
+                )
+                _aged_ids = {id(j) for j in _aged_out}
+                new_jobs = [j for j in new_jobs if id(j) not in _aged_ids]
             if not new_jobs:
                 if bot:
                     await bot.send_message(

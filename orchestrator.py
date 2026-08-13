@@ -12,7 +12,7 @@ import asyncio
 import random
 import re as _re
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import List, Optional
 
 # Deadline patterns in job descriptions (#7)

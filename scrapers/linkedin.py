@@ -132,6 +132,13 @@ class LinkedInScraper(BaseScraper):
     async def _fetch_page(self, url: str, cutoff: datetime) -> List[JobListing]:
         import time as _time
         import random as _random
+        # Once the session cookie is known dead, every remaining combo is a
+        # guaranteed 302. Continuing costs ~16s each (request + tenacity retry
+        # + backoff) — 85 combos is ~23 wasted minutes per scan — and buries
+        # LinkedIn in ~170 failed auth requests, which is how an IP gets
+        # flagged. Short-circuit without touching the network.
+        if self._reauth_alerted:
+            return []
         resp = self.session.get(url, timeout=15)
         if self._check_reauth(resp):
             return []

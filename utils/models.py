@@ -13,6 +13,7 @@ class JobStatus(str, Enum):
     NEW = "new"
     NOTIFIED = "notified"
     APPLYING = "applying"
+    READY_TO_APPLY = "ready_to_apply"
     APPLIED = "applied"
     REJECTED = "rejected"
     INTERVIEWING = "interviewing"

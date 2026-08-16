@@ -99,6 +99,7 @@ class JobOrchestrator:
         self._scan_lock = asyncio.Lock()
         self._stop_event: asyncio.Event = asyncio.Event()
         self._scan_task: Optional[asyncio.Task] = None
+        self._flush_prompted = False
 
     # ── Public control API ─────────────────────────────────────
 
@@ -513,7 +514,7 @@ class JobOrchestrator:
                     chat_id=config.TELEGRAM_CHAT_ID,
                     text=(
                         f"🔎 <b>Scoring {len(new_jobs)} jobs…</b>\n"
-                        f"Cards sent after every {NOTIFY_BATCH_SIZE} relevant matches."
+                        "Cards are sent as each scoring batch completes."
                     ),
                     parse_mode="HTML",
                 )
@@ -585,9 +586,10 @@ class JobOrchestrator:
                     f"{len(above)}/{len(scored_batch)} above threshold"
                 )
 
-                # Send when we have NOTIFY_BATCH_SIZE relevant jobs
+                # Send each scored batch immediately; do not make early matches
+                # wait for ten relevant jobs or the end of the scan.
                 if bot:
-                    await _flush_notify(force=False)
+                    await _flush_notify(force=True)
 
             # Flush any remaining relevant jobs at end of scan
             if bot and not self._stop_event.is_set():
@@ -624,10 +626,10 @@ class JobOrchestrator:
 
     # ── Pending notification flush ─────────────────────────────
 
-    async def flush_pending_notifications(self, bot) -> None:
+    async def flush_pending_notifications(self, bot, confirmed: bool = False) -> None:
         """
-        Send any high-score jobs that were never notified (e.g. due to a failed
-        scan or a bot restart). Called on a 30-min schedule so nothing is missed.
+        Ask before sending high-score jobs recovered after a failed scan/restart.
+        A confirmed callback sends the cards using the current score threshold.
         """
         if not bot:
             return
@@ -642,9 +644,36 @@ class JobOrchestrator:
             ).fetchall()
 
         if not rows:
+            self._flush_prompted = False
             return
 
-        logger.info(f"Flush: {len(rows)} unnotified high-score job(s) found — sending now")
+        if not confirmed:
+            if self._flush_prompted:
+                return
+            from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+            threshold = config.MIN_RELEVANCE_SCORE
+            try:
+                await bot.send_message(
+                    chat_id=config.TELEGRAM_CHAT_ID,
+                    text=(
+                        f"📬 <b>{len(rows)} recovered job match(es) are waiting.</b>\n\n"
+                        f"Current relevance threshold: <b>{threshold:g}/10</b>\n"
+                        "Only jobs at or above this score will be sent."
+                    ),
+                    parse_mode="HTML",
+                    reply_markup=InlineKeyboardMarkup([[
+                        InlineKeyboardButton("✅ Send matching jobs", callback_data="flushconfirm"),
+                        InlineKeyboardButton("🎚 Change threshold", callback_data="cmd:threshold"),
+                    ]]),
+                )
+                self._flush_prompted = True
+                logger.info("Flush: awaiting user confirmation at threshold %.1f", threshold)
+            except Exception as exc:
+                logger.error(f"Flush prompt failed: {exc}")
+            return
+
+        self._flush_prompted = False
+        logger.info(f"Flush confirmed: sending {len(rows)} unnotified high-score job(s)")
 
         from bot.keyboards import job_review_keyboard
         from bot.messages import job_card

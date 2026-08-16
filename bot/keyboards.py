@@ -30,6 +30,13 @@ def confirm_apply_keyboard(job_id: str) -> InlineKeyboardMarkup:
     ])
 
 
+def ready_to_apply_keyboard(job_id: str) -> InlineKeyboardMarkup:
+    """Shown after documents are delivered, before the user submits externally."""
+    return InlineKeyboardMarkup([[
+        InlineKeyboardButton("✅ Mark submitted", callback_data=f"submitted:{job_id}"),
+    ]])
+
+
 def main_menu_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([
         [

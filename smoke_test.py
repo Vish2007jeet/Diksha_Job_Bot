@@ -7,9 +7,10 @@ import asyncio
 import sys
 import time
 import os
+from pathlib import Path
 
-# ── Bootstrap path so imports resolve from D:\Job_Bot ────────────────────────
-JOB_BOT = r"D:\Job_Bot"
+# ── Bootstrap path from this script's location ────────────────────────────────
+JOB_BOT = str(Path(__file__).resolve().parent)
 sys.path.insert(0, JOB_BOT)
 os.chdir(JOB_BOT)
 

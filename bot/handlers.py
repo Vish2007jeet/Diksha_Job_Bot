@@ -28,6 +28,7 @@ from bot.keyboards import (
     confirm_apply_keyboard,
     humanize_keyboard,
     job_review_keyboard,
+    ready_to_apply_keyboard,
     keywords_keyboard,
     locations_keyboard,
     main_menu_keyboard,
@@ -1458,6 +1459,11 @@ class BotHandlers:
             )
             return
 
+        if data == "flushconfirm":
+            await query.edit_message_reply_markup(reply_markup=None)
+            await self.orchestrator.flush_pending_notifications(ctx.bot, confirmed=True)
+            return
+
         if ":" in data:
             action, job_id = data.split(":", 1)
 
@@ -1487,6 +1493,18 @@ class BotHandlers:
 
             elif action == "applyopus":
                 await self._process_apply(query, job_id, notes="", dream=True)
+
+            elif action == "submitted":
+                job_dict = self.tracker.get_job(job_id)
+                if not job_dict or job_dict.get("status") != JobStatus.READY_TO_APPLY.value:
+                    await query.message.reply_html("❓ This application is not waiting for submission confirmation.")
+                    return
+                if self.tracker.mark_submitted(job_id):
+                    self.tracker.record_feedback(job_id, "applied")
+                    await query.edit_message_reply_markup(reply_markup=None)
+                    await query.message.reply_html(
+                        "✅ <b>Application marked as submitted.</b> Tracker, Excel, and Google Sheets are updated."
+                    )
 
             elif action == "skip":
                 self.tracker.update_status(job_id, JobStatus.SKIPPED)
@@ -1769,9 +1787,19 @@ class BotHandlers:
                 job, notes, app_number=app_number
             )
 
-            # Record in all trackers (SQLite + Excel + Google Sheets)
-            self.tracker.record_application(result)
-            self.tracker.record_feedback(job.job_id, "applied")   # #4 feedback loop
+            # Documents are ready, but the user has not submitted them to the
+            # employer portal yet. Keep that distinction explicit in tracking.
+            self.tracker.update_status(
+                job.job_id,
+                JobStatus.READY_TO_APPLY,
+                cv_path=result.cv_docx_path,
+                cl_path=result.cl_docx_path,
+                notes=notes,
+                app_number=result.app_number,
+                folder_name=result.folder_name,
+                cv_ats_score=result.cv_ats_score,
+                cl_ats_score=result.cl_ats_score,
+            )
             self.tracker.sync_to_excel()
 
             # Upload CV + CL to Google Drive
@@ -1787,6 +1815,7 @@ class BotHandlers:
                 chat_id,
                 documents_ready(job, result.folder_name, drive_url),
                 parse_mode="HTML",
+                reply_markup=ready_to_apply_keyboard(job.job_id),
             ))
 
             # Send CV + CL files
@@ -1843,6 +1872,7 @@ class BotHandlers:
                 ))
 
         except FileNotFoundError as exc:
+            self.tracker.update_status(job.job_id, JobStatus.NOTIFIED)
             await self._tg_send(lambda: bot.send_message(
                 chat_id,
                 f"⚠️ <b>Template Missing</b>\n\n{exc}\n\n"
@@ -1853,10 +1883,12 @@ class BotHandlers:
             ))
         except Exception as exc:
             logger.exception(f"Document generation failed: {exc}")
+            self.tracker.update_status(job.job_id, JobStatus.NOTIFIED)
             await self._tg_send(lambda: bot.send_message(
                 chat_id,
                 f"❌ <b>Error generating documents:</b>\n<code>{exc}</code>",
                 parse_mode="HTML",
+                reply_markup=job_review_keyboard(job.job_id),
             ))
 
     async def _regen_and_send_docs(self, chat_id: int, job_id: str) -> None:

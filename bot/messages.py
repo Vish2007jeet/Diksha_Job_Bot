@@ -78,8 +78,7 @@ def documents_ready(job: JobListing, folder_name: str = "", drive_url: str = "")
         f"{folder_line}"
         f"{drive_line}\n\n"
         f"Files attached above ↑\n"
-        f"Don't forget to review before sending! 👆\n\n"
-        f"📊 Logged in tracker + Google Sheets."
+        f"Review and submit on the employer portal, then tap <b>Mark submitted</b>."
     )
 
 

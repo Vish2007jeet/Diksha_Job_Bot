@@ -697,7 +697,7 @@ class JobTracker:
                         description=job.get("description") or "",
                         url=job.get("url") or "",
                     )
-            elif status in (JobStatus.APPLIED, JobStatus.SKIPPED):
+            elif status in (JobStatus.READY_TO_APPLY, JobStatus.APPLIED, JobStatus.SKIPPED):
                 self.sheets.remove_saved_job(job_id)
 
             # ── Applications sheet: update status for post-apply transitions ──
@@ -797,6 +797,31 @@ class JobTracker:
             cv_ats_score=result.cv_ats_score,
             cl_ats_score=result.cl_ats_score,
         )
+
+    def mark_submitted(self, job_id: str) -> bool:
+        """Record the user's explicit confirmation that an application was submitted."""
+        job = self.get_job(job_id)
+        if not job:
+            return False
+        now = datetime.utcnow().isoformat()
+        self.update_status(job_id, JobStatus.APPLIED, applied_at=now)
+        self._sync_excel_row(job_id)
+        self.sheets.upsert_application(
+            app_number=job.get("app_number") or 0,
+            company=job.get("company", ""),
+            role=job.get("title", ""),
+            location=job.get("location", ""),
+            source=job.get("source", ""),
+            score=job.get("relevance_score") or 0.0,
+            status=JobStatus.APPLIED.value,
+            applied_date=now[:10],
+            job_url=job.get("url", ""),
+            folder_name=job.get("folder_name", ""),
+            notes=job.get("notes", "") or "",
+            cv_ats_score=job.get("cv_ats_score") or 0,
+            cl_ats_score=job.get("cl_ats_score") or 0,
+        )
+        return True
 
     # ── Excel ───────────────────────────────────────────────────
 

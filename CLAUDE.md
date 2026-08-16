@@ -1,5 +1,7 @@
 # CLAUDE.md
 
+Read `PROJECT_MEMORY.md` for the user's current operating preferences and recent feature decisions.
+
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
 ## Commands

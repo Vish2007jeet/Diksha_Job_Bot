@@ -4,6 +4,7 @@ Telegram bot command and callback handlers.
 from __future__ import annotations
 
 import asyncio
+import html
 import hashlib
 import io
 from pathlib import Path
@@ -94,6 +95,7 @@ class BotHandlers:
             "/saved — View your saved jobs (bookmarked for later)\n"
             "/clearsaved — Bulk-skip all saved jobs and clean up Sheets\n"
             "/checkgmail — Re-scan Gmail inbox with Claude now\n"
+            "/gmailscan — Check new Inbox + Rejections emails\n"
             "/applications — View all submitted applications\n"
             "/manual — Paste any job description → get tailored CV + CL\n"
             "/keywords — Show and manage search keywords\n"
@@ -294,6 +296,73 @@ class BotHandlers:
             )
 
     # ── /applications ──────────────────────────────────────────
+
+    async def _send_gmail_review_cards(self, message, detections: list) -> None:
+        """Send confirmation cards without changing any application status."""
+        from bot.keyboards import gmail_confirm_keyboard
+
+        labels = {
+            "interviewing": "Interview Invite",
+            "rejected": "Rejection",
+            "offer": "Job Offer",
+        }
+        for det in detections:
+            app_number = det.get("app_number")
+            application_line = (
+                f"Application: <b>#{app_number}</b>\n" if app_number is not None else ""
+            )
+            key_phrase = det.get("key_phrase", "")
+            key_phrase_line = (
+                f"\nKey sentence: <i>{html.escape(key_phrase[:160])}</i>\n" if key_phrase else ""
+            )
+            source = det.get("source")
+            source_line = f"Source: {html.escape(source)}\n" if source else ""
+            card = (
+                f"<b>Email Detected - {labels.get(det['new_status'], det['new_status'].title())}</b>\n"
+                "--------------------------------\n"
+                f"{application_line}"
+                f"Company: <b>{html.escape(det['company'])}</b>\n"
+                f"Position: <b>{html.escape(det['title'])}</b>\n"
+                f"{source_line}"
+                f"From: <code>{html.escape(det.get('sender', 'unknown'))}</code>\n"
+                f"Subject: {html.escape(det.get('subject', ''))}\n"
+                f"{key_phrase_line}\n"
+                f"Assessment: <i>{html.escape(det.get('reason', ''))}</i>\n\n"
+                f"Status: {html.escape(det['old_status'].title())} -> "
+                f"<b>{html.escape(det['new_status'].title())}</b>\n\n"
+                "Is this correct? Tap confirm to update it, or ignore."
+            )
+            await message.reply_html(
+                card,
+                reply_markup=gmail_confirm_keyboard(det["job_id"], det["new_status"]),
+            )
+
+    async def cmd_gmailscan(self, update: Update, _ctx: ContextTypes.DEFAULT_TYPE) -> None:
+        """Review new Gmail Inbox and Rejections-label messages without auto-updating jobs."""
+        if update.effective_chat.id != config.TELEGRAM_CHAT_ID:
+            return
+
+        await update.message.reply_html(
+            "<b>Gmail Scan Started</b>\n\n"
+            "Checking new Inbox and Rejections emails from the last 30 days..."
+        )
+        try:
+            from tracking.gmail_tracker import GmailTracker
+            gt = GmailTracker(config.DATABASE_PATH)
+            detections = await asyncio.to_thread(gt.scan_only, include_rejections=True)
+        except Exception as exc:
+            await update.message.reply_html(f"Gmail scan failed: <code>{html.escape(str(exc))}</code>")
+            return
+
+        if not detections:
+            await update.message.reply_html(
+                "Gmail scan complete.\n\n"
+                "No new interview, rejection, or offer emails matched to tracked applications."
+            )
+            return
+
+        await update.message.reply_html(f"Found <b>{len(detections)}</b> new email(s) to review:")
+        await self._send_gmail_review_cards(update.message, detections)
 
     async def cmd_applications(self, update: Update, _ctx: ContextTypes.DEFAULT_TYPE) -> None:
         if update.effective_chat.id != config.TELEGRAM_CHAT_ID:
@@ -2137,6 +2206,7 @@ def build_handlers(handlers: BotHandlers):
         (CommandHandler("skipall",      handlers.cmd_skipall),      0),
         (CommandHandler("clearsaved",   handlers.cmd_clearsaved),   0),
         (CommandHandler("checkgmail",   handlers.cmd_checkgmail),   0),
+        (CommandHandler("gmailscan",    handlers.cmd_gmailscan),    0),
         (CommandHandler("applications", handlers.cmd_applications), 0),
         (CommandHandler("status",         handlers.cmd_status),         0),
         (CommandHandler("scrapers",       handlers.cmd_scrapers),       0),

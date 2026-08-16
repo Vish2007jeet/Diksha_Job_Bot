@@ -317,7 +317,7 @@ class GmailTracker:
         with sqlite3.connect(self.db_path) as conn:
             conn.row_factory = sqlite3.Row
             rows = conn.execute(
-                "SELECT job_id, company, title, status, applied_at "
+                "SELECT job_id, app_number, company, title, status, applied_at "
                 "FROM jobs WHERE status IN ('applied','interviewing') "
                 "ORDER BY applied_at DESC"
             ).fetchall()
@@ -368,7 +368,7 @@ class GmailTracker:
             logger.warning(f"Gmail Claude call failed: {exc}")
             return {"company": "", "title": "", "status": "unknown", "reason": str(exc)}
 
-    def scan_only(self) -> list:
+    def scan_only(self, *, include_rejections: bool = False, days: int = 30) -> list:
         """
         Same as check_replies() but does NOT update the DB.
         Returns detections for the bot to confirm before committing.
@@ -383,26 +383,47 @@ class GmailTracker:
         if not jobs:
             return []
 
-        since = (datetime.utcnow() - timedelta(days=30)).strftime("%Y/%m/%d")
-        query = (
-            f"after:{since} in:inbox "
-            "-category:promotions -category:social -from:me"
-        )
+        since = (datetime.utcnow() - timedelta(days=days)).strftime("%Y/%m/%d")
+        scans = [("Inbox", f"after:{since} in:inbox -category:promotions -category:social -from:me", None)]
+        if include_rejections:
+            try:
+                labels = service.users().labels().list(userId="me").execute().get("labels", [])
+                rejection_label_id = next(
+                    (label["id"] for label in labels if label.get("name", "").casefold() == "rejections"),
+                    None,
+                )
+                if rejection_label_id:
+                    scans.append(("Rejections", f"after:{since} -from:me", rejection_label_id))
+                else:
+                    logger.warning("Gmail scan: label 'Rejections' was not found")
+            except Exception as exc:
+                logger.warning(f"Gmail scan: could not list labels: {exc}")
+
+        messages: dict[str, set[str]] = {}
         try:
-            result = service.users().messages().list(
-                userId="me", q=query, maxResults=100
-            ).execute()
+            for source, query, label_id in scans:
+                page_token = None
+                while True:
+                    kwargs = {"userId": "me", "q": query, "maxResults": 100}
+                    if page_token:
+                        kwargs["pageToken"] = page_token
+                    if label_id:
+                        kwargs["labelIds"] = [label_id]
+                    result = service.users().messages().list(**kwargs).execute()
+                    for msg_meta in result.get("messages", []):
+                        messages.setdefault(msg_meta["id"], set()).add(source)
+                    page_token = result.get("nextPageToken")
+                    if not page_token:
+                        break
         except Exception as exc:
             logger.error(f"Gmail list failed: {exc}")
             return []
 
-        messages = result.get("messages", [])
         detections = []
         processed_jobs: set = set()
 
-        for msg_meta in messages:
+        for msg_id, sources in messages.items():
             try:
-                msg_id = msg_meta["id"]
                 if self._is_seen(msg_id):
                     continue
 
@@ -446,6 +467,7 @@ class GmailTracker:
                 processed_jobs.add(job_id)
                 detections.append({
                     "job_id":     job_id,
+                    "app_number": job.get("app_number"),
                     "company":    job["company"],
                     "title":      job["title"],
                     "old_status": job["status"],
@@ -455,6 +477,7 @@ class GmailTracker:
                     "email_body": body[:3000],
                     "reason":     reason,
                     "key_phrase": result_json.get("key_phrase", ""),
+                    "source":     " + ".join(sorted(sources)),
                 })
                 logger.info(f"Gmail scan_only: {job['company']} -> {status} | {reason}")
 

@@ -823,6 +823,28 @@ class JobTracker:
         )
         return True
 
+    def sync_ready_to_apply(self, job_id: str) -> bool:
+        """Expose prepared application materials in Sheets without claiming submission."""
+        job = self.get_job(job_id)
+        if not job or not job.get("app_number"):
+            return False
+        self.sheets.upsert_application(
+            app_number=job["app_number"],
+            company=job.get("company", ""),
+            role=job.get("title", ""),
+            location=job.get("location", ""),
+            source=job.get("source", ""),
+            score=job.get("relevance_score") or 0.0,
+            status=JobStatus.READY_TO_APPLY.value,
+            applied_date="",
+            job_url=job.get("url", ""),
+            folder_name=job.get("folder_name", ""),
+            notes=job.get("notes", "") or "",
+            cv_ats_score=job.get("cv_ats_score") or 0,
+            cl_ats_score=job.get("cl_ats_score") or 0,
+        )
+        return True
+
     # ── Excel ───────────────────────────────────────────────────
 
     def _init_excel(self) -> None:

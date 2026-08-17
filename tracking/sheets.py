@@ -47,6 +47,7 @@ COL = {h: i for i, h in enumerate(HEADERS, 1)}
 # ── Status dropdown values ─────────────────────────────────────
 # These appear in the Google Sheets dropdown for the Status column.
 STATUS_DROPDOWN = [
+    "Ready to Apply",
     "Applied",
     "Interviewing",
     "Offer Received",
@@ -56,6 +57,7 @@ STATUS_DROPDOWN = [
 
 # Internal status string → display label written to sheet
 STATUS_DISPLAY = {
+    "ready_to_apply": "Ready to Apply",
     "applied":      "Applied",
     "applying":     "Applied",
     "interviewing": "Interviewing",
@@ -64,8 +66,27 @@ STATUS_DISPLAY = {
     "withdrawn":    "Withdrawn",
 }
 
-# Display label → internal status string (for reading back)
-STATUS_INTERNAL = {v: k for k, v in STATUS_DISPLAY.items()}
+# Display label → internal status string (for reading back).  ``applying`` is
+# intentionally excluded: it shares the display text "Applied" but must not
+# override the actual applied-state mapping.
+STATUS_INTERNAL = {
+    "Ready to Apply": "ready_to_apply",
+    "Applied": "applied",
+    "Interviewing": "interviewing",
+    "Offer Received": "offer",
+    "Rejected": "rejected",
+    "Withdrawn": "withdrawn",
+}
+
+STATUS_COLOURS = {
+    "ready_to_apply": {"red": 1.0,  "green": 0.95, "blue": 0.62},
+    "applied":        {"red": 0.56, "green": 0.93, "blue": 0.56},
+    "applying":       {"red": 0.53, "green": 0.81, "blue": 0.98},
+    "interviewing":   {"red": 0.60, "green": 0.98, "blue": 0.60},
+    "offer":          {"red": 0.20, "green": 0.80, "blue": 0.20},
+    "rejected":       {"red": 1.0,  "green": 0.71, "blue": 0.76},
+    "withdrawn":      {"red": 0.83, "green": 0.83, "blue": 0.83},
+}
 
 SAVED_HEADERS = [
     "Job Name", "Company", "Location", "Score",
@@ -110,8 +131,11 @@ class SheetsTracker:
             if is_new:
                 self._add_status_dropdown(ws)
                 logger.info("Google Sheet headers initialised")
-            elif len(existing) != len(HEADERS):
-                logger.info(f"Google Sheet headers updated ({len(existing)} → {len(HEADERS)} columns)")
+            else:
+                # Keep the dropdown in step with newly introduced statuses.
+                self._add_status_dropdown(ws)
+                if len(existing) != len(HEADERS):
+                    logger.info(f"Google Sheet headers updated ({len(existing)} → {len(HEADERS)} columns)")
         except Exception as exc:
             logger.warning(f"Sheets ensure_headers failed: {exc}")
 
@@ -193,6 +217,63 @@ class SheetsTracker:
             logger.info(f"Sheets: row {target_row} → {display_status} ({now})")
         except Exception as exc:
             logger.warning(f"Sheets update_status failed: {exc}")
+
+    def refresh_status_colours(self) -> None:
+        """Reapply row colours from the Sheet's current status values in one request."""
+        if not self._enabled:
+            return
+        try:
+            ws = self._worksheet()
+            requests = []
+            for row, label in enumerate(ws.col_values(COL["Status"])[1:], start=2):
+                status = STATUS_INTERNAL.get(label, label.strip().lower().replace(" ", "_"))
+                colour = STATUS_COLOURS.get(status)
+                if colour:
+                    requests.append({"repeatCell": {
+                        "range": {"sheetId": ws.id, "startRowIndex": row - 1,
+                                  "endRowIndex": row, "startColumnIndex": 0,
+                                  "endColumnIndex": len(HEADERS)},
+                        "cell": {"userEnteredFormat": {"backgroundColor": colour}},
+                        "fields": "userEnteredFormat.backgroundColor",
+                    }})
+            if requests:
+                ws.spreadsheet.batch_update({"requests": requests})
+            logger.info("Sheets: refreshed colours for %d status row(s)", len(requests))
+        except Exception as exc:
+            logger.warning(f"Sheets refresh_status_colours failed: {exc}")
+
+    def configure_status_formatting(self) -> None:
+        """Make whole-row colours respond automatically to the Status dropdown."""
+        if not self._enabled:
+            return
+        try:
+            ws = self._worksheet()
+            row_range = {
+                "sheetId": ws.id,
+                "startRowIndex": 1,
+                "startColumnIndex": 0,
+                "endColumnIndex": len(HEADERS),
+            }
+            requests = []
+            for label in STATUS_DROPDOWN:
+                status = STATUS_INTERNAL[label]
+                requests.append({"addConditionalFormatRule": {
+                    "rule": {
+                        "ranges": [row_range],
+                        "booleanRule": {
+                            "condition": {
+                                "type": "CUSTOM_FORMULA",
+                                "values": [{"userEnteredValue": f'=$G2="{label}"'}],
+                            },
+                            "format": {"backgroundColor": STATUS_COLOURS[status]},
+                        },
+                    },
+                    "index": 0,
+                }})
+            ws.spreadsheet.batch_update({"requests": requests})
+            logger.info("Sheets: status-controlled row formatting configured")
+        except Exception as exc:
+            logger.warning(f"Sheets configure_status_formatting failed: {exc}")
 
     # ── Saved Jobs public API ──────────────────────────────────
 
@@ -308,7 +389,8 @@ class SheetsTracker:
         """
         Apply a dropdown data validation to the Status column (G) for all data rows.
         Uses the Sheets API batchUpdate so no extra library is needed.
-        Dropdown values: Applied | Interviewing | Offer Received | Rejected | Withdrawn
+        Dropdown values: Ready to Apply | Applied | Interviewing | Offer Received |
+        Rejected | Withdrawn
         """
         try:
             sheet_id = ws.id
@@ -367,15 +449,7 @@ class SheetsTracker:
 
     def _colour_row(self, ws, row: int, status: str) -> None:
         """Apply a background colour to the whole row based on status."""
-        COLOURS = {
-            "applied":      {"red": 0.56, "green": 0.93, "blue": 0.56},
-            "applying":     {"red": 0.53, "green": 0.81, "blue": 0.98},
-            "interviewing": {"red": 0.60, "green": 0.98, "blue": 0.60},
-            "offer":        {"red": 0.20, "green": 0.80, "blue": 0.20},
-            "rejected":     {"red": 1.0,  "green": 0.71, "blue": 0.76},
-            "withdrawn":    {"red": 0.83, "green": 0.83, "blue": 0.83},
-        }
-        colour = COLOURS.get(status.lower(), {"red": 1.0, "green": 1.0, "blue": 1.0})
+        colour = STATUS_COLOURS.get(status.lower(), {"red": 1.0, "green": 1.0, "blue": 1.0})
         try:
             ws.format(f"A{row}:{_LAST_COL}{row}", {"backgroundColor": colour})
         except Exception:

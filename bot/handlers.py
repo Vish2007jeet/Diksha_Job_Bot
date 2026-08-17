@@ -1800,6 +1800,7 @@ class BotHandlers:
                 cv_ats_score=result.cv_ats_score,
                 cl_ats_score=result.cl_ats_score,
             )
+            self.tracker.sync_ready_to_apply(job.job_id)
             self.tracker.sync_to_excel()
 
             # Upload CV + CL to Google Drive

@@ -20,6 +20,7 @@ from typing import Any
 _SETTINGS_FILE = Path(__file__).parent.parent / "data" / "bot_settings.json"
 
 _DEFAULTS: dict[str, Any] = {
+    "min_relevance_score": 6.0,
     "humanize_enabled": True,
     "ats_score_target": 80,
     # Best-of-N: on the first generation attempt, generate N candidates in

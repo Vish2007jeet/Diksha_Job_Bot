@@ -207,6 +207,7 @@ def _load_bot_setting(key: str, default):
             pass
     return default
 
+MIN_RELEVANCE_SCORE = float(_load_bot_setting("min_relevance_score", MIN_RELEVANCE_SCORE))
 HUMANIZE_ENABLED: bool = bool(_load_bot_setting("humanize_enabled", True))
 ATS_SCORE_TARGET: int  = int(_load_bot_setting("ats_score_target", 80))
 # Cover letters are read by recruiters, not ATS-scanned the way CVs are. A high

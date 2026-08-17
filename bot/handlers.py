@@ -643,7 +643,8 @@ class BotHandlers:
                 await update.message.reply_html("❌ Value must be between 1 and 10.")
                 return
             old = config.MIN_RELEVANCE_SCORE
-            config.MIN_RELEVANCE_SCORE = val
+            from utils.bot_settings import bot_settings
+            bot_settings.set("min_relevance_score", val)
         await update.message.reply_html(
             f"🎚 <b>Score Threshold</b>\n\n"
             f"Current: <b>{config.MIN_RELEVANCE_SCORE:g}</b>\n\n"
@@ -1273,7 +1274,8 @@ class BotHandlers:
                 new_val = float(action.split(":", 1)[1])
             else:
                 return
-            config.MIN_RELEVANCE_SCORE = new_val
+            from utils.bot_settings import bot_settings
+            bot_settings.set("min_relevance_score", new_val)
             try:
                 await query.edit_message_text(
                     f"🎚 <b>Score Threshold</b>\n\n"

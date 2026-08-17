@@ -69,6 +69,7 @@ from utils.models import JobListing, JobStatus
 STREAM_BATCH_SIZE   = 10  # score this many jobs per batch
 NOTIFY_BATCH_SIZE   = 10  # send cards to Telegram after this many relevant jobs
 _MAX_AGE_DAYS       = 3   # fallback lookback for first-ever scan
+_FLUSH_STATS_FLOOR  = 6.0 # lowest score shown in the threshold chooser
 
 
 def _naive(dt):
@@ -89,6 +90,17 @@ def _older_date(candidate, current) -> bool:
     if current is None:
         return True
     return _naive(candidate) < _naive(current)
+
+
+def _flush_threshold_stats(scores: list[float], current: float) -> str:
+    """Show cumulative pending-job counts for the useful score cutoffs."""
+    cutoffs = {6.0, 6.5, 7.0, 7.5, 8.0, 8.5, 9.0, 9.5, 10.0, round(current, 1)}
+    lines = [
+        f"  ≥ {cutoff:g}: <b>{sum(score >= cutoff for score in scores)}</b> job(s)"
+        for cutoff in sorted(cutoffs, reverse=True)
+        if cutoff == round(current, 1) or any(score >= cutoff for score in scores)
+    ]
+    return "\n".join(lines)
 
 
 class JobOrchestrator:
@@ -636,29 +648,33 @@ class JobOrchestrator:
 
         import sqlite3
         with sqlite3.connect(config.DATABASE_PATH) as conn:
-            rows = conn.execute(
+            all_rows = conn.execute(
                 "SELECT job_id, title, company, location, url, relevance_score, "
                 "salary, source "
                 "FROM jobs WHERE status = 'new' AND relevance_score >= ?",
-                (config.MIN_RELEVANCE_SCORE,),
+                (_FLUSH_STATS_FLOOR,),
             ).fetchall()
 
-        if not rows:
+        if not all_rows:
             self._flush_prompted = False
             return
+
+        threshold = config.MIN_RELEVANCE_SCORE
+        rows = [row for row in all_rows if row[5] >= threshold]
 
         if not confirmed:
             if self._flush_prompted:
                 return
             from telegram import InlineKeyboardButton, InlineKeyboardMarkup
-            threshold = config.MIN_RELEVANCE_SCORE
+            stats = _flush_threshold_stats([row[5] for row in all_rows], threshold)
             try:
                 await bot.send_message(
                     chat_id=config.TELEGRAM_CHAT_ID,
                     text=(
-                        f"📬 <b>{len(rows)} recovered job match(es) are waiting.</b>\n\n"
-                        f"Current relevance threshold: <b>{threshold:g}/10</b>\n"
-                        "Only jobs at or above this score will be sent."
+                        "📬 <b>Pending-job threshold guide</b>\n\n"
+                        f"<b>Current threshold: {threshold:g}/10 → {len(rows)} job(s)</b>\n\n"
+                        f"<b>Jobs available at each cutoff:</b>\n{stats}\n\n"
+                        "Choose a threshold, then confirm to send only matching jobs."
                     ),
                     parse_mode="HTML",
                     reply_markup=InlineKeyboardMarkup([[
@@ -673,6 +689,16 @@ class JobOrchestrator:
             return
 
         self._flush_prompted = False
+        if not rows:
+            await bot.send_message(
+                chat_id=config.TELEGRAM_CHAT_ID,
+                text=(
+                    f"📭 No pending jobs score ≥ <b>{threshold:g}/10</b>. "
+                    "Lower the threshold to send matches."
+                ),
+                parse_mode="HTML",
+            )
+            return
         logger.info(f"Flush confirmed: sending {len(rows)} unnotified high-score job(s)")
 
         from bot.keyboards import job_review_keyboard

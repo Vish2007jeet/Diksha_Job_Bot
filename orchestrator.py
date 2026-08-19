@@ -765,9 +765,15 @@ class JobOrchestrator:
             label   = _LABELS.get(det["new_status"], det["new_status"].title())
             old_lbl = det["old_status"].title()
             new_lbl = det["new_status"].title()
+            app_number = det.get("app_number")
+            application_line = (
+                f"🔢 <b>Application:</b> #{app_number}\n"
+                if app_number is not None else ""
+            )
             card = (
                 f"{icon} <b>Email Detected — {label}</b>\n"
                 f"{'─' * 32}\n"
+                f"{application_line}"
                 f"🏢 <b>Company:</b>   {det['company']}\n"
                 f"📌 <b>Position:</b>  {det['title']}\n"
                 f"📧 <b>From:</b>      <code>{det.get('sender', 'unknown').replace('<', '&lt;').replace('>', '&gt;')}</code>\n"

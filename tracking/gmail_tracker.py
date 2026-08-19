@@ -209,7 +209,12 @@ def _sim(a: str, b: str) -> float:
     return SequenceMatcher(None, a, b).ratio()
 
 
-def _best_match(claude_company: str, claude_title: str, jobs: list) -> Optional[dict]:
+def _best_match(
+    claude_company: str,
+    claude_title: str,
+    jobs: list,
+    email_text: str = "",
+) -> Optional[dict]:
     """
     Match an email's extracted company+title against the applied-jobs DB.
 
@@ -225,6 +230,21 @@ def _best_match(claude_company: str, claude_title: str, jobs: list) -> Optional[
     et  = claude_title.strip().lower()   # email title, lowercased
     ec  = claude_company.strip().lower() # email company, lowercased
     nec = _normalize(claude_company)
+
+    # The email itself is stronger evidence than an LLM extraction.  If it
+    # names exactly one tracked company, keep matching within that company so
+    # similar role titles cannot select an unrelated application.
+    normalized_email = _normalize(email_text)
+    mentioned_companies = {
+        _normalize(job["company"])
+        for job in jobs
+        if len(_normalize(job["company"])) >= 3
+        and _normalize(job["company"]) in normalized_email
+    }
+    if len(mentioned_companies) == 1:
+        company_key = mentioned_companies.pop()
+        jobs = [job for job in jobs if _normalize(job["company"]) == company_key]
+        logger.debug(f"[gmail] Email company evidence narrowed match to '{company_key}'")
 
     def company_matches(job: dict) -> bool:
         jc  = job["company"].strip().lower()
@@ -318,7 +338,7 @@ class GmailTracker:
             conn.row_factory = sqlite3.Row
             rows = conn.execute(
                 "SELECT job_id, app_number, company, title, status, applied_at "
-                "FROM jobs WHERE status IN ('applied','interviewing') "
+                "FROM jobs WHERE status IN ('ready_to_apply','applied','interviewing') "
                 "ORDER BY applied_at DESC"
             ).fetchall()
         return [dict(r) for r in rows]
@@ -452,6 +472,7 @@ class GmailTracker:
                     result_json.get("company", ""),
                     result_json.get("title", ""),
                     jobs,
+                    f"{sender}\n{subject}\n{body}",
                 )
                 if not job:
                     continue
@@ -562,6 +583,7 @@ class GmailTracker:
                     result_json.get("company", ""),
                     result_json.get("title", ""),
                     jobs,
+                    f"{sender}\n{subject}\n{body}",
                 )
                 if not job:
                     logger.debug(
